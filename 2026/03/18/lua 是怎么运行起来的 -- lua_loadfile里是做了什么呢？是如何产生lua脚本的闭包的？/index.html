@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  
+  
+  <title>Lua 是怎么运行起来的 -- lua_loadfile里是做了什么呢？是如何产生lua脚本的闭包的？ | 我的个人博客</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+  <meta name="description" content="引言Lua 与其他脚本语言一样，有自己的一个 LVM（Lua 虚拟机）。LVM 会通过 luaL_loadfile 加载 Lua 脚本文件，通过词法分析，将脚本文件的代码读取出来并且通过语法分析、语义分析将代码转换为字节码指令，并保存到一个 closure 中。 当加载完 Lua 脚本后，可以通过 lua_pcall 执行 Lua 脚本中的字节码列表。 核心问题 lua_loadfile 里是做了">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Lua 是怎么运行起来的 -- lua_loadfile里是做了什么呢？是如何产生lua脚本的闭包的？">
+<meta property="og:url" content="https://wenware.github.io/2026/03/18/lua%20%E6%98%AF%E6%80%8E%E4%B9%88%E8%BF%90%E8%A1%8C%E8%B5%B7%E6%9D%A5%E7%9A%84%20--%20lua_loadfile%E9%87%8C%E6%98%AF%E5%81%9A%E4%BA%86%E4%BB%80%E4%B9%88%E5%91%A2%EF%BC%9F%E6%98%AF%E5%A6%82%E4%BD%95%E4%BA%A7%E7%94%9Flua%E8%84%9A%E6%9C%AC%E7%9A%84%E9%97%AD%E5%8C%85%E7%9A%84%EF%BC%9F/index.html">
+<meta property="og:site_name" content="我的个人博客">
+<meta property="og:description" content="引言Lua 与其他脚本语言一样，有自己的一个 LVM（Lua 虚拟机）。LVM 会通过 luaL_loadfile 加载 Lua 脚本文件，通过词法分析，将脚本文件的代码读取出来并且通过语法分析、语义分析将代码转换为字节码指令，并保存到一个 closure 中。 当加载完 Lua 脚本后，可以通过 lua_pcall 执行 Lua 脚本中的字节码列表。 核心问题 lua_loadfile 里是做了">
+<meta property="og:locale" content="zh_CN">
+<meta property="article:published_time" content="2026-03-18T10:00:00.000Z">
+<meta property="article:modified_time" content="2026-03-23T12:07:22.146Z">
+<meta property="article:author" content="你的名字">
+<meta property="article:tag" content="Lua">
+<meta property="article:tag" content="源码分析">
+<meta name="twitter:card" content="summary">
+  
+    <link rel="alternate" href="/atom.xml" title="我的个人博客" type="application/atom+xml">
+  
+  
+    <link rel="shortcut icon" href="/favicon.png">
+  
+  
+  
+<link rel="stylesheet" href="/css/style.css">
+
+  
+    
+<link rel="stylesheet" href="/fancybox/jquery.fancybox.min.css">
+
+  
+  
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/fork-awesome@1.2.0/css/fork-awesome.min.css">
+
+<meta name="generator" content="Hexo 7.3.0"></head>
+
+<body>
+  <div id="container">
+    <div id="wrap">
+      <header id="header">
+  <div id="banner"></div>
+  <div id="header-outer" class="outer">
+    <div id="header-title" class="inner">
+      <h1 id="logo-wrap">
+        <a href="/" id="logo">我的个人博客</a>
+      </h1>
+      
+    </div>
+    <div id="header-inner" class="inner">
+      <nav id="main-nav">
+        <a id="main-nav-toggle" class="nav-icon"><span class="fa fa-bars"></span></a>
+        
+          <a class="main-nav-link" href="/">Home</a>
+        
+          <a class="main-nav-link" href="/archives">Archives</a>
+        
+      </nav>
+      <nav id="sub-nav">
+        
+        
+          <a class="nav-icon" href="/atom.xml" title="RSS 订阅"><span class="fa fa-rss"></span></a>
+        
+        <a class="nav-icon nav-search-btn" title="搜索"><span class="fa fa-search"></span></a>
+      </nav>
+      <div id="search-form-wrap">
+        <form action="//google.com/search" method="get" accept-charset="UTF-8" class="search-form"><input type="search" name="q" class="search-form-input" placeholder="搜索"><button type="submit" class="search-form-submit">&#xF002;</button><input type="hidden" name="sitesearch" value="https://wenware.github.io"></form>
+      </div>
+    </div>
+  </div>
+</header>
+
+      <div class="outer">
+        <section id="main"><article id="post-lua 是怎么运行起来的 -- lua_loadfile里是做了什么呢？是如何产生lua脚本的闭包的？" class="h-entry article article-type-post" itemprop="blogPost" itemscope itemtype="https://schema.org/BlogPosting">
+  <div class="article-meta">
+    <a href="/2026/03/18/lua%20%E6%98%AF%E6%80%8E%E4%B9%88%E8%BF%90%E8%A1%8C%E8%B5%B7%E6%9D%A5%E7%9A%84%20--%20lua_loadfile%E9%87%8C%E6%98%AF%E5%81%9A%E4%BA%86%E4%BB%80%E4%B9%88%E5%91%A2%EF%BC%9F%E6%98%AF%E5%A6%82%E4%BD%95%E4%BA%A7%E7%94%9Flua%E8%84%9A%E6%9C%AC%E7%9A%84%E9%97%AD%E5%8C%85%E7%9A%84%EF%BC%9F/" class="article-date">
+  <time class="dt-published" datetime="2026-03-18T10:00:00.000Z" itemprop="datePublished">2026-03-18</time>
+</a>
+    
+  <div class="article-category">
+    <a class="article-category-link" href="/categories/%E6%8A%80%E6%9C%AF%E7%AC%94%E8%AE%B0/">技术笔记</a>
+  </div>
+
+  </div>
+  <div class="article-inner">
+    
+    
+      <header class="article-header">
+        
+  
+    <h1 class="p-name article-title" itemprop="headline name">
+      Lua 是怎么运行起来的 -- lua_loadfile里是做了什么呢？是如何产生lua脚本的闭包的？
+    </h1>
+  
+
+      </header>
+    
+    <div class="e-content article-entry" itemprop="articleBody">
+      
+        <h2 id="引言"><a href="#引言" class="headerlink" title="引言"></a>引言</h2><p>Lua 与其他脚本语言一样，有自己的一个 LVM（Lua 虚拟机）。LVM 会通过 <code>luaL_loadfile</code> 加载 Lua 脚本文件，通过词法分析，将脚本文件的代码读取出来并且通过语法分析、语义分析将代码转换为字节码指令，并保存到一个 closure 中。</p>
+<p>当加载完 Lua 脚本后，可以通过 <code>lua_pcall</code> 执行 Lua 脚本中的字节码列表。</p>
+<h2 id="核心问题"><a href="#核心问题" class="headerlink" title="核心问题"></a>核心问题</h2><ol>
+<li><code>lua_loadfile</code> 里是做了什么呢？是如何产生 Lua 脚本的闭包的？</li>
+<li><code>lua_loadfile</code> 加载完脚本后，里面的数据是如何在 <code>lua_pcall</code> 里执行的？</li>
+</ol>
+<h2 id="lua-loadfile-的实现原理"><a href="#lua-loadfile-的实现原理" class="headerlink" title="lua_loadfile 的实现原理"></a>lua_loadfile 的实现原理</h2><h3 id="文件读取机制"><a href="#文件读取机制" class="headerlink" title="文件读取机制"></a>文件读取机制</h3><p>当在加载文件的时候，必须要对文件进行读取，然后一个文字一个文字进行解析。这里用到了 <code>LoadF</code> 与 <code>ZIO</code> 两个结构体进行文件的读取。</p>
+<p><strong>为什么要用到两个不同的结构体？</strong></p>
+<ul>
+<li><strong>LoadF 的作用</strong>：主要是对源文件的读取</li>
+<li><strong>ZIO 的作用</strong>：对已加载的文件进行读取（即对 LoadF 中的缓存数据进行处理）</li>
+</ul>
+<p>这样做 ZIO 就可以将不同文件系统的读取方式分离开来。这种设计在我们日常编码中有很重要的作用，将可变与不变的功能区分设计，也是读源码的知识增长点。</p>
+<h3 id="解析过程"><a href="#解析过程" class="headerlink" title="解析过程"></a>解析过程</h3><p>实际的文件解析主要发生在 <code>luaY_parser</code>（lparser.c）里，里面会对 Lua 脚本文件进行词法分析并最终维护一个 <code>FuncState</code> 结构体，最终返回包含 <code>FuncState</code> 里的 <code>Proto</code> 数据的闭包。</p>
+<p>这里执行了对 <code>mainfunc</code> 的解析，需要注意的是，这里的解析是一个词一个词进行解析的，由 <code>luaX_next</code> 获取当前的词，之后会对脚本文件的代码块进行 <code>statlist</code> 解析。</p>
+<p>在 <code>statlist</code> 的解析过程中，会根据不同的词，去进行不同的语句解析：</p>
+<ul>
+<li>例如遇到 <code>local</code> 关键字，就会调用 <code>localfunc</code> 解析 <code>local function</code> 语句</li>
+<li>或执行 <code>localstat</code> 语句</li>
+</ul>
+<p>而在具体的 <code>localstat</code> 的解析过程中，会针对不同语法情况，解析并维护 <code>expdesc</code> 结构体，用于存储局部变量的类型、索引等信息。这个结构体在最终的字节码生成中会使用到并生成最终的字节码指令保存到 <code>FuncState</code> 的 <code>Proto</code> 数据中。</p>
+<h2 id="完整调用流程"><a href="#完整调用流程" class="headerlink" title="完整调用流程"></a>完整调用流程</h2><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line">luaL_loadfile(L, &quot;main.lua&quot;)</span><br><span class="line">    │</span><br><span class="line">    ├─ luaL_loadfilex(L, &quot;main.lua&quot;, NULL)</span><br><span class="line">    │     │</span><br><span class="line">    │     ├─ fopen(&quot;main.lua&quot;, &quot;r&quot;)  → 打开文件</span><br><span class="line">    │     ├─ lua_load(L, getF, &amp;lf, &quot;@main.lua&quot;, NULL)</span><br><span class="line">    │     │     │</span><br><span class="line">    │     │     ├─ luaD_parser(L, &amp;parser, NULL, getF, &amp;lf, &quot;@main.lua&quot;)</span><br><span class="line">    │     │     │     │</span><br><span class="line">    │     │     │     └─ luaY_parser(L, &amp;parser)</span><br><span class="line">    │     │     │             │</span><br><span class="line">    │     │     │             ├─ luaX_next()  ← 词法分析</span><br><span class="line">    │     │     │             ├─ 语法分析</span><br><span class="line">    │     │     │             ├─ 生成 Proto (字节码)</span><br><span class="line">    │     │     │             └─ luaF_newLclosure() → LClosure</span><br><span class="line">    │     │     │                     │</span><br><span class="line">    │     │     │                     └─ return closure</span><br><span class="line">    │     │     │</span><br><span class="line">    │     │     └─ closure 入栈</span><br><span class="line">    │     │</span><br><span class="line">    │     └─ fclose(lf.f)  → 关闭文件</span><br><span class="line">    │</span><br><span class="line">    └─ return status</span><br></pre></td></tr></table></figure>
+
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>通过深入分析 Lua 源码，我们可以清晰地看到 Lua 脚本的加载和执行流程：</p>
+<ol>
+<li><strong>文件读取</strong>：使用 <code>LoadF</code> 和 <code>ZIO</code> 结构体实现文件读取的抽象</li>
+<li><strong>词法分析</strong>：<code>luaX_next</code> 逐词读取脚本内容</li>
+<li><strong>语法分析</strong>：<code>luaY_parser</code> 解析语法结构</li>
+<li><strong>字节码生成</strong>：生成 <code>Proto</code> 数据结构</li>
+<li><strong>闭包创建</strong>：<code>luaF_newLclosure</code> 创建 <code>LClosure</code></li>
+<li><strong>闭包入栈</strong>：将生成的闭包压入 Lua 栈</li>
+</ol>
+<p>这种分层设计使得 Lua 的虚拟机具有良好的可扩展性和可维护性。</p>
+
+      
+    </div>
+    <footer class="article-footer">
+      <a data-url="https://wenware.github.io/2026/03/18/lua%20%E6%98%AF%E6%80%8E%E4%B9%88%E8%BF%90%E8%A1%8C%E8%B5%B7%E6%9D%A5%E7%9A%84%20--%20lua_loadfile%E9%87%8C%E6%98%AF%E5%81%9A%E4%BA%86%E4%BB%80%E4%B9%88%E5%91%A2%EF%BC%9F%E6%98%AF%E5%A6%82%E4%BD%95%E4%BA%A7%E7%94%9Flua%E8%84%9A%E6%9C%AC%E7%9A%84%E9%97%AD%E5%8C%85%E7%9A%84%EF%BC%9F/" data-id="cmn355ux7000048uodwd60udv" data-title="Lua 是怎么运行起来的 -- lua_loadfile里是做了什么呢？是如何产生lua脚本的闭包的？" class="article-share-link"><span class="fa fa-share">分享</span></a>
+      
+      
+      
+  <ul class="article-tag-list" itemprop="keywords"><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/Lua/" rel="tag">Lua</a></li><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90/" rel="tag">源码分析</a></li></ul>
+
+    </footer>
+  </div>
+  
+    
+<nav id="article-nav">
+  
+  
+    <a href="/2026/03/18/lua%E4%B8%AD%E7%9A%84require%E6%89%A7%E8%A1%8C%E6%B5%81%E7%A8%8B/" id="article-nav-older" class="article-nav-link-wrap">
+      <strong class="article-nav-caption">后一篇</strong>
+      <div class="article-nav-title">Lua中的require执行流程</div>
+    </a>
+  
+</nav>
+
+  
+</article>
+
+
+</section>
+        
+          <aside id="sidebar">
+  
+    
+  <div class="widget-wrap">
+    <h3 class="widget-title">分类</h3>
+    <div class="widget">
+      <ul class="category-list"><li class="category-list-item"><a class="category-list-link" href="/categories/%E6%8A%80%E6%9C%AF%E7%AC%94%E8%AE%B0/">技术笔记</a></li></ul>
+    </div>
+  </div>
+
+
+  
+    
+  <div class="widget-wrap">
+    <h3 class="widget-title">标签</h3>
+    <div class="widget">
+      <ul class="tag-list" itemprop="keywords"><li class="tag-list-item"><a class="tag-list-link" href="/tags/Lua/" rel="tag">Lua</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/lua-%E7%9A%84-require/" rel="tag">lua 的 require</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/skynet/" rel="tag">skynet</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90/" rel="tag">源码分析</a></li></ul>
+    </div>
+  </div>
+
+
+  
+    
+  <div class="widget-wrap">
+    <h3 class="widget-title">标签云</h3>
+    <div class="widget tagcloud">
+      <a href="/tags/Lua/" style="font-size: 20px;">Lua</a> <a href="/tags/lua-%E7%9A%84-require/" style="font-size: 10px;">lua 的 require</a> <a href="/tags/skynet/" style="font-size: 10px;">skynet</a> <a href="/tags/%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90/" style="font-size: 10px;">源码分析</a>
+    </div>
+  </div>
+
+  
+    
+  <div class="widget-wrap">
+    <h3 class="widget-title">归档</h3>
+    <div class="widget">
+      <ul class="archive-list"><li class="archive-list-item"><a class="archive-list-link" href="/archives/2026/03/">三月 2026</a></li></ul>
+    </div>
+  </div>
+
+
+  
+    
+  <div class="widget-wrap">
+    <h3 class="widget-title">最新文章</h3>
+    <div class="widget">
+      <ul>
+        
+          <li>
+            <a href="/2026/03/18/lua%20%E6%98%AF%E6%80%8E%E4%B9%88%E8%BF%90%E8%A1%8C%E8%B5%B7%E6%9D%A5%E7%9A%84%20--%20lua_loadfile%E9%87%8C%E6%98%AF%E5%81%9A%E4%BA%86%E4%BB%80%E4%B9%88%E5%91%A2%EF%BC%9F%E6%98%AF%E5%A6%82%E4%BD%95%E4%BA%A7%E7%94%9Flua%E8%84%9A%E6%9C%AC%E7%9A%84%E9%97%AD%E5%8C%85%E7%9A%84%EF%BC%9F/">Lua 是怎么运行起来的 -- lua_loadfile里是做了什么呢？是如何产生lua脚本的闭包的？</a>
+          </li>
+        
+          <li>
+            <a href="/2026/03/18/lua%E4%B8%AD%E7%9A%84require%E6%89%A7%E8%A1%8C%E6%B5%81%E7%A8%8B/">Lua中的require执行流程</a>
+          </li>
+        
+          <li>
+            <a href="/2026/03/05/skynet-call%E6%80%BB%E7%BB%93/">skynet.call总结</a>
+          </li>
+        
+          <li>
+            <a href="/2026/03/05/skynet-call-%E5%85%B7%E4%BD%93%E6%B5%81%E7%A8%8B/">skynet.call 具体流程</a>
+          </li>
+        
+          <li>
+            <a href="/2026/03/04/hello-world/">Hello World</a>
+          </li>
+        
+      </ul>
+    </div>
+  </div>
+
+  
+</aside>
+        
+      </div>
+      <footer id="footer">
+  
+  <div class="outer">
+    <div id="footer-info" class="inner">
+      
+      &copy; 2026 你的名字<br>
+      Powered by <a href="https://hexo.io/" target="_blank">Hexo</a>
+    </div>
+  </div>
+</footer>
+
+    </div>
+    <nav id="mobile-nav">
+  
+    <a href="/" class="mobile-nav-link">Home</a>
+  
+    <a href="/archives" class="mobile-nav-link">Archives</a>
+  
+</nav>
+    
+
+
+<script src="/js/jquery-3.6.4.min.js"></script>
+
+
+
+  
+<script src="/fancybox/jquery.fancybox.min.js"></script>
+
+
+
+
+<script src="/js/script.js"></script>
+
+
+
+
+
+  </div>
+</body>
+</html>
