@@ -9,12 +9,12 @@
   <meta name="description" content="概述首先，Skynet 总共有 4 种线程在工作：  worker 线程：消耗消息事件 socket 线程：负责 socket 连接的建立与维护，以及接收与发送数据 timer 线程：负责定时任务的调度 monitor 线程：负责监控其他线程的状态，以及处理异常情况（如业务服务出现超时执行，例如循环 call 时，每 5 秒检测一次判断是否异常，5 秒钟内业务代码没有处理结束时，就认为是异常，这时">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Skynet 游戏服务器框架主体">
-<meta property="og:url" content="https://wenware.github.io/2026/03/05/skynet%20%E6%B8%B8%E6%88%8F%E6%9E%B6%E6%9E%84/index.html">
+<meta property="og:url" content="https://wenware.github.io/2026/04/02/skynet%20%E6%B8%B8%E6%88%8F%E6%9E%B6%E6%9E%84/index.html">
 <meta property="og:site_name" content="我的个人博客">
 <meta property="og:description" content="概述首先，Skynet 总共有 4 种线程在工作：  worker 线程：消耗消息事件 socket 线程：负责 socket 连接的建立与维护，以及接收与发送数据 timer 线程：负责定时任务的调度 monitor 线程：负责监控其他线程的状态，以及处理异常情况（如业务服务出现超时执行，例如循环 call 时，每 5 秒检测一次判断是否异常，5 秒钟内业务代码没有处理结束时，就认为是异常，这时">
 <meta property="og:locale" content="zh_CN">
-<meta property="article:published_time" content="2026-03-05T11:00:00.000Z">
-<meta property="article:modified_time" content="2026-04-02T08:41:05.140Z">
+<meta property="article:published_time" content="2026-04-02T04:00:00.000Z">
+<meta property="article:modified_time" content="2026-04-02T08:45:10.616Z">
 <meta property="article:author" content="你的名字">
 <meta property="article:tag" content="Skynet">
 <meta property="article:tag" content="游戏服务器">
@@ -78,8 +78,8 @@
       <div class="outer">
         <section id="main"><article id="post-skynet 游戏架构" class="h-entry article article-type-post" itemprop="blogPost" itemscope itemtype="https://schema.org/BlogPosting">
   <div class="article-meta">
-    <a href="/2026/03/05/skynet%20%E6%B8%B8%E6%88%8F%E6%9E%B6%E6%9E%84/" class="article-date">
-  <time class="dt-published" datetime="2026-03-05T11:00:00.000Z" itemprop="datePublished">2026-03-05</time>
+    <a href="/2026/04/02/skynet%20%E6%B8%B8%E6%88%8F%E6%9E%B6%E6%9E%84/" class="article-date">
+  <time class="dt-published" datetime="2026-04-02T04:00:00.000Z" itemprop="datePublished">2026-04-02</time>
 </a>
     
   <div class="article-category">
@@ -136,7 +136,7 @@
       
     </div>
     <footer class="article-footer">
-      <a data-url="https://wenware.github.io/2026/03/05/skynet%20%E6%B8%B8%E6%88%8F%E6%9E%B6%E6%9E%84/" data-id="cmnh87ie6000mxcuoftrw12ab" data-title="Skynet 游戏服务器框架主体" class="article-share-link"><span class="fa fa-share">分享</span></a>
+      <a data-url="https://wenware.github.io/2026/04/02/skynet%20%E6%B8%B8%E6%88%8F%E6%9E%B6%E6%9E%84/" data-id="cmnh8coq2000afwuoe0so0yvp" data-title="Skynet 游戏服务器框架主体" class="article-share-link"><span class="fa fa-share">分享</span></a>
       
       
       
@@ -148,19 +148,10 @@
     
 <nav id="article-nav">
   
-    <a href="/2026/03/18/lua%E4%B8%AD%E7%9A%84require%E6%89%A7%E8%A1%8C%E6%B5%81%E7%A8%8B/" id="article-nav-newer" class="article-nav-link-wrap">
-      <strong class="article-nav-caption">前一篇</strong>
-      <div class="article-nav-title">
-        
-          Lua中的require执行流程
-        
-      </div>
-    </a>
   
-  
-    <a href="/2026/03/05/skynet-call%E6%80%BB%E7%BB%93/" id="article-nav-older" class="article-nav-link-wrap">
+    <a href="/2026/03/24/lua%20--%20%E5%88%86%E4%BB%A3gc/" id="article-nav-older" class="article-nav-link-wrap">
       <strong class="article-nav-caption">后一篇</strong>
-      <div class="article-nav-title">skynet.call总结</div>
+      <div class="article-nav-title">Lua 分代 GC</div>
     </a>
   
 </nav>
@@ -206,7 +197,7 @@
   <div class="widget-wrap">
     <h3 class="widget-title">归档</h3>
     <div class="widget">
-      <ul class="archive-list"><li class="archive-list-item"><a class="archive-list-link" href="/archives/2026/03/">三月 2026</a></li></ul>
+      <ul class="archive-list"><li class="archive-list-item"><a class="archive-list-link" href="/archives/2026/04/">四月 2026</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2026/03/">三月 2026</a></li></ul>
     </div>
   </div>
 
@@ -217,6 +208,10 @@
     <h3 class="widget-title">最新文章</h3>
     <div class="widget">
       <ul>
+        
+          <li>
+            <a href="/2026/04/02/skynet%20%E6%B8%B8%E6%88%8F%E6%9E%B6%E6%9E%84/">Skynet 游戏服务器框架主体</a>
+          </li>
         
           <li>
             <a href="/2026/03/24/lua%20--%20%E5%88%86%E4%BB%A3gc/">Lua 分代 GC</a>
@@ -232,10 +227,6 @@
         
           <li>
             <a href="/2026/03/18/lua%20%E6%98%AF%E6%80%8E%E4%B9%88%E8%BF%90%E8%A1%8C%E8%B5%B7%E6%9D%A5%E7%9A%84%20--%20lua_loadfile%E9%87%8C%E6%98%AF%E5%81%9A%E4%BA%86%E4%BB%80%E4%B9%88%E5%91%A2%EF%BC%9F%E6%98%AF%E5%A6%82%E4%BD%95%E4%BA%A7%E7%94%9Flua%E8%84%9A%E6%9C%AC%E7%9A%84%E9%97%AD%E5%8C%85%E7%9A%84%EF%BC%9F/">Lua 是怎么运行起来的 -- lua_loadfile里是做了什么呢？是如何产生lua脚本的闭包的？</a>
-          </li>
-        
-          <li>
-            <a href="/2026/03/18/lua%E4%B8%AD%E7%9A%84require%E6%89%A7%E8%A1%8C%E6%B5%81%E7%A8%8B/">Lua中的require执行流程</a>
           </li>
         
       </ul>
