@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  
+  
+  <title>Skynet 游戏服务器框架主体 | 我的个人博客</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+  <meta name="description" content="概述首先，Skynet 总共有 4 种线程在工作：  worker 线程：消耗消息事件 socket 线程：负责 socket 连接的建立与维护，以及接收与发送数据 timer 线程：负责定时任务的调度 monitor 线程：负责监控其他线程的状态，以及处理异常情况（如业务服务出现超时执行，例如循环 call 时，每 5 秒检测一次判断是否异常，5 秒钟内业务代码没有处理结束时，就认为是异常，这时">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Skynet 游戏服务器框架主体">
+<meta property="og:url" content="https://wenware.github.io/2026/03/05/skynet%20%E6%B8%B8%E6%88%8F%E6%9E%B6%E6%9E%84/index.html">
+<meta property="og:site_name" content="我的个人博客">
+<meta property="og:description" content="概述首先，Skynet 总共有 4 种线程在工作：  worker 线程：消耗消息事件 socket 线程：负责 socket 连接的建立与维护，以及接收与发送数据 timer 线程：负责定时任务的调度 monitor 线程：负责监控其他线程的状态，以及处理异常情况（如业务服务出现超时执行，例如循环 call 时，每 5 秒检测一次判断是否异常，5 秒钟内业务代码没有处理结束时，就认为是异常，这时">
+<meta property="og:locale" content="zh_CN">
+<meta property="article:published_time" content="2026-03-05T11:00:00.000Z">
+<meta property="article:modified_time" content="2026-04-02T08:41:05.140Z">
+<meta property="article:author" content="你的名字">
+<meta property="article:tag" content="Skynet">
+<meta property="article:tag" content="游戏服务器">
+<meta property="article:tag" content="架构">
+<meta name="twitter:card" content="summary">
+  
+    <link rel="alternate" href="/atom.xml" title="我的个人博客" type="application/atom+xml">
+  
+  
+    <link rel="shortcut icon" href="/favicon.png">
+  
+  
+  
+<link rel="stylesheet" href="/css/style.css">
+
+  
+    
+<link rel="stylesheet" href="/fancybox/jquery.fancybox.min.css">
+
+  
+  
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/fork-awesome@1.2.0/css/fork-awesome.min.css">
+
+<meta name="generator" content="Hexo 7.3.0"></head>
+
+<body>
+  <div id="container">
+    <div id="wrap">
+      <header id="header">
+  <div id="banner"></div>
+  <div id="header-outer" class="outer">
+    <div id="header-title" class="inner">
+      <h1 id="logo-wrap">
+        <a href="/" id="logo">我的个人博客</a>
+      </h1>
+      
+    </div>
+    <div id="header-inner" class="inner">
+      <nav id="main-nav">
+        <a id="main-nav-toggle" class="nav-icon"><span class="fa fa-bars"></span></a>
+        
+          <a class="main-nav-link" href="/">Home</a>
+        
+          <a class="main-nav-link" href="/archives">Archives</a>
+        
+      </nav>
+      <nav id="sub-nav">
+        
+        
+          <a class="nav-icon" href="/atom.xml" title="RSS 订阅"><span class="fa fa-rss"></span></a>
+        
+        <a class="nav-icon nav-search-btn" title="搜索"><span class="fa fa-search"></span></a>
+      </nav>
+      <div id="search-form-wrap">
+        <form action="//google.com/search" method="get" accept-charset="UTF-8" class="search-form"><input type="search" name="q" class="search-form-input" placeholder="搜索"><button type="submit" class="search-form-submit">&#xF002;</button><input type="hidden" name="sitesearch" value="https://wenware.github.io"></form>
+      </div>
+    </div>
+  </div>
+</header>
+
+      <div class="outer">
+        <section id="main"><article id="post-skynet 游戏架构" class="h-entry article article-type-post" itemprop="blogPost" itemscope itemtype="https://schema.org/BlogPosting">
+  <div class="article-meta">
+    <a href="/2026/03/05/skynet%20%E6%B8%B8%E6%88%8F%E6%9E%B6%E6%9E%84/" class="article-date">
+  <time class="dt-published" datetime="2026-03-05T11:00:00.000Z" itemprop="datePublished">2026-03-05</time>
+</a>
+    
+  <div class="article-category">
+    <a class="article-category-link" href="/categories/%E6%8A%80%E6%9C%AF%E7%AC%94%E8%AE%B0/">技术笔记</a>
+  </div>
+
+  </div>
+  <div class="article-inner">
+    
+    
+      <header class="article-header">
+        
+  
+    <h1 class="p-name article-title" itemprop="headline name">
+      Skynet 游戏服务器框架主体
+    </h1>
+  
+
+      </header>
+    
+    <div class="e-content article-entry" itemprop="articleBody">
+      
+        <h2 id="概述"><a href="#概述" class="headerlink" title="概述"></a>概述</h2><p>首先，Skynet 总共有 4 种线程在工作：</p>
+<ol>
+<li><strong>worker 线程</strong>：消耗消息事件</li>
+<li><strong>socket 线程</strong>：负责 socket 连接的建立与维护，以及接收与发送数据</li>
+<li><strong>timer 线程</strong>：负责定时任务的调度</li>
+<li><strong>monitor 线程</strong>：负责监控其他线程的状态，以及处理异常情况（如业务服务出现超时执行，例如循环 call 时，每 5 秒检测一次判断是否异常，5 秒钟内业务代码没有处理结束时，就认为是异常，这时候可以进行一些自己的输出处理，例如可以发送信号至对应的服务中打印堆栈信息）</li>
+</ol>
+<p>其中，worker 线程会有多个线程，这个线程数量可以根据服务器的 CPU 核心数量才决定如何配置，一般情况下，多少个 CPU 核心数量就配置多少个 worker 线程。</p>
+<h2 id="Actor-模型与消息队列"><a href="#Actor-模型与消息队列" class="headerlink" title="Actor 模型与消息队列"></a>Actor 模型与消息队列</h2><p>Skynet 下的服务设计是基于 actor 模型的，每个服务都是一个 actor，actor 之间通过消息传递来通信，所以 Skynet 设计中会有一个全局消息队列，这个消息队列保存了所有有消息的服务的二级消息队列，二级消息队列保存的是服务的事件消息。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line">┌─────────────────────────────────────────────────────────────────────────────┐</span><br><span class="line">│                           Skynet 全局消息队列 (Global Queue)                 │</span><br><span class="line">│  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐            │</span><br><span class="line">│  │Service A│  │Service B│  │Service C│  │Service D│  │ ...     │   ──► 有消息的服务</span><br><span class="line">│  │ Queue   │  │ Queue   │  │ Queue   │  │ Queue   │  │         │       的二级队列</span><br><span class="line">│  └────┬────┘  └────┬────┘  └────┬────┘  └────┬────┘  └─────────┘</span><br><span class="line">└───────┼───────────┼───────────┼───────────┼─────────────────────────────────┘</span><br><span class="line">        │           │           │           │</span><br><span class="line">        ▼           ▼           ▼           ▼</span><br><span class="line">┌───────────┐ ┌───────────┐ ┌───────────┐ ┌───────────┐</span><br><span class="line">│ Service A │ │ Service B │ │ Service C │ │ Service D │</span><br><span class="line">│二级消息队列│ │二级消息队列│ │二级消息队列│ │ 二级消息队列│</span><br><span class="line">│  ┌─────┐  │ │  ┌─────┐  │ │  ┌─────┐  │ │  ┌─────┐  │</span><br><span class="line">│  │Msg 1│  │ │  │Msg 1│  │ │  │Msg 1│  │ │  │Msg 1│  │</span><br><span class="line">│  │Msg 2│  │ │  │Msg 2│  │ │  │     │  │ │  │Msg 2│  │</span><br><span class="line">│  │Msg 3│  │ │  │     │  │ │  │     │  │ │  │     │  │</span><br><span class="line">│  └─────┘  │ │  └─────┘  │ │  └─────┘  │ │  └─────┘  │</span><br><span class="line">└───────────┘ └───────────┘ └───────────┘ └───────────┘</span><br></pre></td></tr></table></figure>
+
+<h2 id="统一事件源"><a href="#统一事件源" class="headerlink" title="统一事件源"></a>统一事件源</h2><p>可以说所有的业务逻辑触发都是通过操作消息队列来触发的，所以 Skynet 使用了<strong>统一事件源</strong>的设计。</p>
+<h3 id="消息来源"><a href="#消息来源" class="headerlink" title="消息来源"></a>消息来源</h3><ol>
+<li><strong>socket 线程</strong>：接收到客户端的消息，会根据 socket 的 fd 来判断是哪个服务的事件，然后封装好消息数据加入到对应服务的二级消息队列中，二级消息队列也会加入到全局消息队列中</li>
+<li><strong>timer 线程</strong>：会每 2500 微秒检查一次自己的时间轮中是否有定时任务需要执行，如果有，则会根据所保存的 event 数据中的 handle 获取到对应的服务，然后将定时任务作为消息加入到二级消息队列中</li>
+<li><strong>服务间通信</strong>：如果是本地服务之间的通信，则会根据目标服务的服务 id 找到对应的服务 context，然后将消息加入到目标服务的二级消息队列中</li>
+<li><strong>系统信号</strong>：例如 <code>kill -2</code> 的时候需要正确关闭服务器（如通知所有玩家下线，服务正常关闭）</li>
+</ol>
+<h2 id="集群部署"><a href="#集群部署" class="headerlink" title="集群部署"></a>集群部署</h2><p>另外，目前的服务器框架都应该支持集群部署，Skynet 也不例外，Skynet 支持两种集群部署：</p>
+<h3 id="1-Master-Slave-模式"><a href="#1-Master-Slave-模式" class="headerlink" title="1. Master&#x2F;Slave 模式"></a>1. Master&#x2F;Slave 模式</h3><p>集群中配置一台 master 服务器，所有的 slave 服务器都连接到 master 服务器上，因单点风险过大，所以目前游戏服务器基本已经废弃了。</p>
+<h3 id="2-Cluster-模式（推荐）"><a href="#2-Cluster-模式（推荐）" class="headerlink" title="2. Cluster 模式（推荐）"></a>2. Cluster 模式（推荐）</h3><p>去中心化，集群中，只有在需要的时候才会主动连接到目标服务器创建维护一个 socket 连接，所有的服务器最终都会维护 n-1 个 socket 连接。</p>
+<p>但是 Skynet 只提供了最简单的组件，Cluster 的搭建需要自己去实现：</p>
+<ul>
+<li>目前需要提供一个第三方来知道所有的在线服务器，这边目前可以使用 <strong>Zookeeper</strong> 来解决这个问题</li>
+<li>所有的服务器启动的时候，根据自己的配置文件，封装好自己的服务器信息，然后注册到 Zookeeper 中</li>
+<li>在需要用到 Cluster 功能时，需要从 Zookeeper（可以用 Skynet sharetable 来实现缓存）中获取到所有的在线服务器的信息，然后根据服务器的信息，来创建 socket 连接</li>
+</ul>
+<h2 id="运营相关功能"><a href="#运营相关功能" class="headerlink" title="运营相关功能"></a>运营相关功能</h2><p>一个完整的游戏服务器，除了集群部署，还需要一些运营相关的功能，例如玩家流水，充值流水等。所以还需要部署 <strong>Kafka</strong> 来实现解耦（Kafka 不止流水功能，还有消息队列事件分发功能）去实现玩家流水上报功能。</p>
+<h2 id="性能监测"><a href="#性能监测" class="headerlink" title="性能监测"></a>性能监测</h2><p>另外，最重要的是性能火焰图了，这里可以通过 <strong>Grafana</strong> 与 Skynet debugconsole 提供的性能输出来实现监测。</p>
+<h2 id="负载均衡"><a href="#负载均衡" class="headerlink" title="负载均衡"></a>负载均衡</h2><p>当然，如果有需要的话，还需要 <strong>LVS</strong> 等来实现负载均衡。</p>
+
+      
+    </div>
+    <footer class="article-footer">
+      <a data-url="https://wenware.github.io/2026/03/05/skynet%20%E6%B8%B8%E6%88%8F%E6%9E%B6%E6%9E%84/" data-id="cmnh87ie6000mxcuoftrw12ab" data-title="Skynet 游戏服务器框架主体" class="article-share-link"><span class="fa fa-share">分享</span></a>
+      
+      
+      
+  <ul class="article-tag-list" itemprop="keywords"><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/Skynet/" rel="tag">Skynet</a></li><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/%E6%9E%B6%E6%9E%84/" rel="tag">架构</a></li><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/%E6%B8%B8%E6%88%8F%E6%9C%8D%E5%8A%A1%E5%99%A8/" rel="tag">游戏服务器</a></li></ul>
+
+    </footer>
+  </div>
+  
+    
+<nav id="article-nav">
+  
+    <a href="/2026/03/18/lua%E4%B8%AD%E7%9A%84require%E6%89%A7%E8%A1%8C%E6%B5%81%E7%A8%8B/" id="article-nav-newer" class="article-nav-link-wrap">
+      <strong class="article-nav-caption">前一篇</strong>
+      <div class="article-nav-title">
+        
+          Lua中的require执行流程
+        
+      </div>
+    </a>
+  
+  
+    <a href="/2026/03/05/skynet-call%E6%80%BB%E7%BB%93/" id="article-nav-older" class="article-nav-link-wrap">
+      <strong class="article-nav-caption">后一篇</strong>
+      <div class="article-nav-title">skynet.call总结</div>
+    </a>
+  
+</nav>
+
+  
+</article>
+
+
+</section>
+        
+          <aside id="sidebar">
+  
+    
+  <div class="widget-wrap">
+    <h3 class="widget-title">分类</h3>
+    <div class="widget">
+      <ul class="category-list"><li class="category-list-item"><a class="category-list-link" href="/categories/%E6%8A%80%E6%9C%AF%E7%AC%94%E8%AE%B0/">技术笔记</a></li></ul>
+    </div>
+  </div>
+
+
+  
+    
+  <div class="widget-wrap">
+    <h3 class="widget-title">标签</h3>
+    <div class="widget">
+      <ul class="tag-list" itemprop="keywords"><li class="tag-list-item"><a class="tag-list-link" href="/tags/GC/" rel="tag">GC</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Lua/" rel="tag">Lua</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Skynet/" rel="tag">Skynet</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/lua-%E7%9A%84-require/" rel="tag">lua 的 require</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/skynet/" rel="tag">skynet</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E6%9E%B6%E6%9E%84/" rel="tag">架构</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E6%B8%B8%E6%88%8F%E6%9C%8D%E5%8A%A1%E5%99%A8/" rel="tag">游戏服务器</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90/" rel="tag">源码分析</a></li></ul>
+    </div>
+  </div>
+
+
+  
+    
+  <div class="widget-wrap">
+    <h3 class="widget-title">标签云</h3>
+    <div class="widget tagcloud">
+      <a href="/tags/GC/" style="font-size: 13.33px;">GC</a> <a href="/tags/Lua/" style="font-size: 20px;">Lua</a> <a href="/tags/Skynet/" style="font-size: 10px;">Skynet</a> <a href="/tags/lua-%E7%9A%84-require/" style="font-size: 10px;">lua 的 require</a> <a href="/tags/skynet/" style="font-size: 10px;">skynet</a> <a href="/tags/%E6%9E%B6%E6%9E%84/" style="font-size: 10px;">架构</a> <a href="/tags/%E6%B8%B8%E6%88%8F%E6%9C%8D%E5%8A%A1%E5%99%A8/" style="font-size: 10px;">游戏服务器</a> <a href="/tags/%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90/" style="font-size: 16.67px;">源码分析</a>
+    </div>
+  </div>
+
+  
+    
+  <div class="widget-wrap">
+    <h3 class="widget-title">归档</h3>
+    <div class="widget">
+      <ul class="archive-list"><li class="archive-list-item"><a class="archive-list-link" href="/archives/2026/03/">三月 2026</a></li></ul>
+    </div>
+  </div>
+
+
+  
+    
+  <div class="widget-wrap">
+    <h3 class="widget-title">最新文章</h3>
+    <div class="widget">
+      <ul>
+        
+          <li>
+            <a href="/2026/03/24/lua%20--%20%E5%88%86%E4%BB%A3gc/">Lua 分代 GC</a>
+          </li>
+        
+          <li>
+            <a href="/2026/03/24/lua%20--%20%E5%A2%9E%E9%87%8Fgc/">Lua 增量 GC</a>
+          </li>
+        
+          <li>
+            <a href="/2026/03/23/lua%20%E6%98%AF%E6%80%8E%E4%B9%88%E8%BF%90%E8%A1%8C%E8%B5%B7%E6%9D%A5%E7%9A%84%20--%20lua_loadfile%E5%8A%A0%E8%BD%BD%E5%AE%8C%E8%84%9A%E6%9C%AC%E5%90%8E%EF%BC%8C%E9%87%8C%E9%9D%A2%E7%9A%84%E6%95%B0%E6%8D%AE%E6%98%AF%E5%A6%82%E4%BD%95%E5%9C%A8lua_pcall%E9%87%8C%E6%89%A7%E8%A1%8C%E7%9A%84%EF%BC%9F/">Lua 是怎么运行起来的 -- lua_loadfile加载完脚本后，里面的数据是如何在lua_pcall里执行的？</a>
+          </li>
+        
+          <li>
+            <a href="/2026/03/18/lua%20%E6%98%AF%E6%80%8E%E4%B9%88%E8%BF%90%E8%A1%8C%E8%B5%B7%E6%9D%A5%E7%9A%84%20--%20lua_loadfile%E9%87%8C%E6%98%AF%E5%81%9A%E4%BA%86%E4%BB%80%E4%B9%88%E5%91%A2%EF%BC%9F%E6%98%AF%E5%A6%82%E4%BD%95%E4%BA%A7%E7%94%9Flua%E8%84%9A%E6%9C%AC%E7%9A%84%E9%97%AD%E5%8C%85%E7%9A%84%EF%BC%9F/">Lua 是怎么运行起来的 -- lua_loadfile里是做了什么呢？是如何产生lua脚本的闭包的？</a>
+          </li>
+        
+          <li>
+            <a href="/2026/03/18/lua%E4%B8%AD%E7%9A%84require%E6%89%A7%E8%A1%8C%E6%B5%81%E7%A8%8B/">Lua中的require执行流程</a>
+          </li>
+        
+      </ul>
+    </div>
+  </div>
+
+  
+</aside>
+        
+      </div>
+      <footer id="footer">
+  
+  <div class="outer">
+    <div id="footer-info" class="inner">
+      
+      &copy; 2026 你的名字<br>
+      Powered by <a href="https://hexo.io/" target="_blank">Hexo</a>
+    </div>
+  </div>
+</footer>
+
+    </div>
+    <nav id="mobile-nav">
+  
+    <a href="/" class="mobile-nav-link">Home</a>
+  
+    <a href="/archives" class="mobile-nav-link">Archives</a>
+  
+</nav>
+    
+
+
+<script src="/js/jquery-3.6.4.min.js"></script>
+
+
+
+  
+<script src="/fancybox/jquery.fancybox.min.js"></script>
+
+
+
+
+<script src="/js/script.js"></script>
+
+
+
+
+
+  </div>
+</body>
+</html>
