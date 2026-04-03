@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  
+  
+  <title>Skynet 服务启动机制 | 我的个人博客</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+  <meta name="description" content="概述Skynet 服务作为核心组件，主要负责处理客户端请求、服务间通信等业务功能。 在 Skynet 中，总共分两种服务，一个是 C 服务，一个是 Lua 服务，每个服务都有自己的服务 skynet_context。skynet_context 是 Skynet 中用来维护服务桩体的重要结构体，所有关于服务的操作都是通过 skynet_context 来完成的，例如查找指定服务都是通过里面的 ha">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Skynet 服务启动机制">
+<meta property="og:url" content="https://wenware.github.io/2026/04/03/skynet%20%E6%9C%8D%E5%8A%A1/index.html">
+<meta property="og:site_name" content="我的个人博客">
+<meta property="og:description" content="概述Skynet 服务作为核心组件，主要负责处理客户端请求、服务间通信等业务功能。 在 Skynet 中，总共分两种服务，一个是 C 服务，一个是 Lua 服务，每个服务都有自己的服务 skynet_context。skynet_context 是 Skynet 中用来维护服务桩体的重要结构体，所有关于服务的操作都是通过 skynet_context 来完成的，例如查找指定服务都是通过里面的 ha">
+<meta property="og:locale" content="zh_CN">
+<meta property="article:published_time" content="2026-04-03T03:00:00.000Z">
+<meta property="article:modified_time" content="2026-04-03T03:43:00.377Z">
+<meta property="article:author" content="你的名字">
+<meta property="article:tag" content="源码分析">
+<meta property="article:tag" content="Skynet">
+<meta property="article:tag" content="游戏服务器">
+<meta property="article:tag" content="架构">
+<meta name="twitter:card" content="summary">
+  
+    <link rel="alternate" href="/atom.xml" title="我的个人博客" type="application/atom+xml">
+  
+  
+    <link rel="shortcut icon" href="/favicon.png">
+  
+  
+  
+<link rel="stylesheet" href="/css/style.css">
+
+  
+    
+<link rel="stylesheet" href="/fancybox/jquery.fancybox.min.css">
+
+  
+  
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/fork-awesome@1.2.0/css/fork-awesome.min.css">
+
+<meta name="generator" content="Hexo 7.3.0"></head>
+
+<body>
+  <div id="container">
+    <div id="wrap">
+      <header id="header">
+  <div id="banner"></div>
+  <div id="header-outer" class="outer">
+    <div id="header-title" class="inner">
+      <h1 id="logo-wrap">
+        <a href="/" id="logo">我的个人博客</a>
+      </h1>
+      
+    </div>
+    <div id="header-inner" class="inner">
+      <nav id="main-nav">
+        <a id="main-nav-toggle" class="nav-icon"><span class="fa fa-bars"></span></a>
+        
+          <a class="main-nav-link" href="/">Home</a>
+        
+          <a class="main-nav-link" href="/archives">Archives</a>
+        
+      </nav>
+      <nav id="sub-nav">
+        
+        
+          <a class="nav-icon" href="/atom.xml" title="RSS 订阅"><span class="fa fa-rss"></span></a>
+        
+        <a class="nav-icon nav-search-btn" title="搜索"><span class="fa fa-search"></span></a>
+      </nav>
+      <div id="search-form-wrap">
+        <form action="//google.com/search" method="get" accept-charset="UTF-8" class="search-form"><input type="search" name="q" class="search-form-input" placeholder="搜索"><button type="submit" class="search-form-submit">&#xF002;</button><input type="hidden" name="sitesearch" value="https://wenware.github.io"></form>
+      </div>
+    </div>
+  </div>
+</header>
+
+      <div class="outer">
+        <section id="main"><article id="post-skynet 服务" class="h-entry article article-type-post" itemprop="blogPost" itemscope itemtype="https://schema.org/BlogPosting">
+  <div class="article-meta">
+    <a href="/2026/04/03/skynet%20%E6%9C%8D%E5%8A%A1/" class="article-date">
+  <time class="dt-published" datetime="2026-04-03T03:00:00.000Z" itemprop="datePublished">2026-04-03</time>
+</a>
+    
+  <div class="article-category">
+    <a class="article-category-link" href="/categories/%E6%8A%80%E6%9C%AF%E7%AC%94%E8%AE%B0/">技术笔记</a>
+  </div>
+
+  </div>
+  <div class="article-inner">
+    
+    
+      <header class="article-header">
+        
+  
+    <h1 class="p-name article-title" itemprop="headline name">
+      Skynet 服务启动机制
+    </h1>
+  
+
+      </header>
+    
+    <div class="e-content article-entry" itemprop="articleBody">
+      
+        <h2 id="概述"><a href="#概述" class="headerlink" title="概述"></a>概述</h2><p>Skynet 服务作为核心组件，主要负责处理客户端请求、服务间通信等业务功能。</p>
+<p>在 Skynet 中，总共分两种服务，一个是 <strong>C 服务</strong>，一个是 <strong>Lua 服务</strong>，每个服务都有自己的服务 <code>skynet_context</code>。<code>skynet_context</code> 是 Skynet 中用来维护服务桩体的重要结构体，所有关于服务的操作都是通过 <code>skynet_context</code> 来完成的，例如查找指定服务都是通过里面的 <code>handle</code> 来找到对应的 <code>skynet_context</code> 的。</p>
+<p>那么这两种服务都是怎么启动的呢？</p>
+<h2 id="C-服务启动机制"><a href="#C-服务启动机制" class="headerlink" title="C 服务启动机制"></a>C 服务启动机制</h2><p>C 服务一般在编译成 <code>.so</code> 文件，然后在 Skynet 启动时加载或者在运行时动态加载。</p>
+<h3 id="动态库格式要求"><a href="#动态库格式要求" class="headerlink" title="动态库格式要求"></a>动态库格式要求</h3><p>这种 C 服务都有固定的文件命名以及函数命名格式（例如 <code>service_logger.so</code>、<code>service_snlua.so</code> 动态库命名），以及库中必须实现以下四个函数：</p>
+<ul>
+<li><code>xx_create</code></li>
+<li><code>xx_init</code></li>
+<li><code>xx_release</code></li>
+<li><code>xx_signal</code></li>
+</ul>
+<p>以便在使用 <code>dlopen</code> 进行加载的时候能够正确找到对应的函数。</p>
+<h3 id="启动流程"><a href="#启动流程" class="headerlink" title="启动流程"></a>启动流程</h3><p>启动或者运行时动态加载时会触发 <code>skynet_context_new(const char * name, const char *param)</code> —— <code>skynet_server.c</code>，在里面会调用到 <code>skynet_module_query(name)</code> —— <code>skynet_module.c</code>。</p>
+<p>该函数首先会查询模块是否已经加载过，如果没有加载则会通过 <code>dlopen</code> 实现运行时加载动态库获取到模块对应的动态库的句柄，最终根据句柄调用 <code>dlsym</code> 获取到对应的函数指针，最终实现 C 服务的启动。</p>
+<p>在获得动态库的模块后，会调用 <code>skynet_handle_register(struct skynet_context *ctx)</code> 进行 <code>handle</code> 的注册获得一个服务的专属 ID，后续根据这个 ID 进行通信，最后会对这个 <code>skynet_context</code> 对象进行必要的初始化（例如消息队列生成、模块的初始化逻辑）。</p>
+<h3 id="C-服务启动调用链"><a href="#C-服务启动调用链" class="headerlink" title="C 服务启动调用链"></a>C 服务启动调用链</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br></pre></td><td class="code"><pre><span class="line">┌────────────────────────────────────────────────────────────────────────────────────────────────────────────┐</span><br><span class="line">│                                    Skynet C服务启动调用链                                                    │</span><br><span class="line">├────────────────────────────────────────────────────────────────────────────────────────────────────────────┤</span><br><span class="line">│                                                                                                            │</span><br><span class="line">│  skynet_context_new(name, param)                    skynet_server.c:126                                    │</span><br><span class="line">│       │                                                                                                    │</span><br><span class="line">│       ├──► 1. skynet_module_query(name)             skynet_module.c:117  ◄─── 动态库加载/查询                │</span><br><span class="line">│       │         │                                                                                           │</span><br><span class="line">│       │         ├──► _query(name)                  skynet_module.c      ◄─── 查询模块是否已加载              │</span><br><span class="line">│       │         │         │                                                                                │</span><br><span class="line">│       │         │         └──► 如果未找到:                                                                  │</span><br><span class="line">│       │         │             ├──► _try_open(M, name)     skynet_module.c  ◄─── dlopen 加载动态库           │</span><br><span class="line">│       │         │             └──► dlsym() 获取4个函数指针:                                                  │</span><br><span class="line">│       │         │                   • module_create                                                        │</span><br><span class="line">│       │         │                   • module_init                                                          │</span><br><span class="line">│       │         │                   • module_release                                                       │</span><br><span class="line">│       │         │                   • module_signal                                                        │</span><br><span class="line">│       │         │                                                                                          │</span><br><span class="line">│       │         └──► 返回 skynet_module *                                                                   │</span><br><span class="line">│       │                                                                                                    │</span><br><span class="line">│       ├──► 2. skynet_module_instance_create(mod)    skynet_module.c:51                                     │</span><br><span class="line">│       │         │                                                                                          │</span><br><span class="line">│       │         └──► mod-&gt;create()  ◄─── 调用动态库的 xxx_create 函数                                        │</span><br><span class="line">│       │                                                                                                    │</span><br><span class="line">│       ├──► 3. skynet_handle_register(ctx)           skynet_handle.c    ◄─── 注册handle获得唯一ID            │</span><br><span class="line">│       │         │                                                                                          │</span><br><span class="line">│       │         └──► 分配 handle = (node &lt;&lt; HANDLE_REMOTE_SHIFT) | (++handle_id)                           │</span><br><span class="line">│       │                                                                                                    │</span><br><span class="line">│       ├──► 4. skynet_mq_create(handle)              skynet_mq.c:78       ◄─── 创建消息队列                  │</span><br><span class="line">│       │                                                                                                    │</span><br><span class="line">│       └──► 5. skynet_module_instance_init(mod, inst, ctx, param)  skynet_module.c ◄─── 调用 xxx_init       │</span><br><span class="line">│                   │                                                                                        │</span><br><span class="line">│                   └──► 执行服务的初始化逻辑                                                                  │</span><br><span class="line">│                                                                                                            │</span><br><span class="line">└────────────────────────────────────────────────────────────────────────────────────────────────────────────┘</span><br></pre></td></tr></table></figure>
+
+<h2 id="Lua-服务启动机制"><a href="#Lua-服务启动机制" class="headerlink" title="Lua 服务启动机制"></a>Lua 服务启动机制</h2><p>Lua 服务一般在启动的时候执行 <code>main.lua</code> 文件时，执行 <code>skynet.newservice(name, param)</code> 来启动 Lua 服务。</p>
+<h3 id="启动步骤"><a href="#启动步骤" class="headerlink" title="启动步骤"></a>启动步骤</h3><ol>
+<li><p><strong>服务创建请求</strong>：在执行 <code>skynet.newservice(name, param)</code> 最终会在 <code>skynet.launch(...)</code> —— <code>manager.lua</code> 中调用到 <code>lua-skynet.c</code> 里的 <code>command</code> 函数，然后会调用到 <code>skynet_server.c</code> 下的 <code>skynet_command</code> 执行 <code>cmd_launch</code> 函数，这里会执行 <code>skynet_context_new(&quot;snlua&quot;, &quot;clusterd&quot;)</code> 进行 C 服务类型的 snlua 服务的启动。</p>
+</li>
+<li><p><strong>Snlua 服务初始化</strong>：在 snlua 服务启动完毕后，<code>skynet_module_instance_init(mod, inst, ctx, param)</code> 进行 Lua 服务的初始化。在里面调用到 <code>snlua_init</code> 函数，这里会将 <code>launch_cb</code> 当做第一次回调的 cb 函数，<code>snlua_init</code> 结束后会向 lua 服务发送第一条信息，这时已经算启动完成了。</p>
+</li>
+<li><p><strong>首次消息处理</strong>：在 worker 线程中，执行服务的第一个消息时，会分发到 <code>launch_cb</code> 函数，这里先通过 <code>skynet_callback(context, NULL, NULL)</code> 将服务的 cb 设置为 null，避免重复处理，然后会在 <code>init_cb</code> 中执行 <code>lua_State</code> 的初始化，到这里，该 lua 服务是没有 callback 函数的。</p>
+</li>
+<li><p><strong>Lua 文件加载</strong>：在 <code>init_cb</code> 中，会通过 <code>newservice</code> 的 name 参数，使用 lualoader 的 lua 加载器进行对应 lua 文件的加载，最终使用 <code>lua_pcall</code> 来执行该 lua 文件。</p>
+</li>
+<li><p><strong>回调函数注册</strong>：在 lua 文件中，会执行到 lua 代码 <code>skynet.start(function() end)</code>，最终执行到 C 代码 <code>callback</code> —— <code>lua-skynet.c</code>，这里会将 <code>skynet.dispatch_message</code> 这个 lua 函数注册到 <code>registry[_cb]</code> 中，在普通模式下，会调用 <code>skynet_callback(context, gL, _cb)</code> 将 <code>lua-skynet.c</code> 下的 <code>_cb</code> 函数设置为该 lua 服务的回调函数。</p>
+</li>
+<li><p><strong>消息处理</strong>：当有新的消息到达时，在 worker 线程中会调用 <code>ctx-&gt;cb(ctx, ctx-&gt;cb_ud, type, msg-&gt;session, msg-&gt;source, msg-&gt;data, sz)</code> 从而触发到 <code>lua-skynet.c</code> 中的 <code>_cb</code> 函数，最终调用到 <code>skynet.dispatch_message</code> 进行业务处理。</p>
+</li>
+</ol>
+<h3 id="Lua-服务启动调用链"><a href="#Lua-服务启动调用链" class="headerlink" title="Lua 服务启动调用链"></a>Lua 服务启动调用链</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br></pre></td><td class="code"><pre><span class="line">skynet.newservice(&quot;loginserver&quot;, &quot;world&quot;)</span><br><span class="line">    │</span><br><span class="line">    ▼</span><br><span class="line">skynet.call(&quot;.launcher&quot;, &quot;lua&quot;, &quot;LAUNCH&quot;, &quot;snlua&quot;, &quot;loginserver&quot;, &quot;world&quot;)</span><br><span class="line">    │</span><br><span class="line">    ▼</span><br><span class="line">launcher.lua: command.LAUNCH → launch_service → skynet.launch</span><br><span class="line">    │</span><br><span class="line">    ▼</span><br><span class="line">skynet.manager.lua: skynet.launch → c.command(&quot;LAUNCH&quot;, &quot;snlua loginserver world&quot;)</span><br><span class="line">    │</span><br><span class="line">    ▼</span><br><span class="line">skynet_server.c: cmd_launch → skynet_context_new(&quot;snlua&quot;, &quot;loginserver world&quot;)</span><br><span class="line">    │</span><br><span class="line">    ├──► skynet_module_query(&quot;snlua&quot;)      ← dlopen 加载动态库</span><br><span class="line">    ├──► skynet_module_instance_create()   ← snlua_create()</span><br><span class="line">    ├──► skynet_handle_register()          ← 分配 handle</span><br><span class="line">    ├──► skynet_mq_create()                ← 创建消息队列</span><br><span class="line">    └──► skynet_module_instance_init()    ← snlua_init()</span><br><span class="line">            │</span><br><span class="line">            ├──► skynet_callback(ctx, launch_cb)</span><br><span class="line">            └──► skynet.send(ctx, &quot;lua&quot;, &quot;init&quot;, args)</span><br><span class="line">                    │</span><br><span class="line">                    ▼</span><br><span class="line">            launch_cb(&quot;init&quot;, args)  ← 异步执行</span><br><span class="line">                    │</span><br><span class="line">                    ├──► init_cb()   ← 创建Lua VM,加载loader.lua</span><br><span class="line">                    └──► skynet.send(&quot;.launcher&quot;, &quot;LAUNCHOK&quot;)</span><br></pre></td></tr></table></figure>
+
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>至此，Skynet 的服务启动完成。</p>
+
+      
+    </div>
+    <footer class="article-footer">
+      <a data-url="https://wenware.github.io/2026/04/03/skynet%20%E6%9C%8D%E5%8A%A1/" data-id="cmnid08pd000r00uo1kbpecam" data-title="Skynet 服务启动机制" class="article-share-link"><span class="fa fa-share">分享</span></a>
+      
+      
+      
+  <ul class="article-tag-list" itemprop="keywords"><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/Skynet/" rel="tag">Skynet</a></li><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/%E6%9E%B6%E6%9E%84/" rel="tag">架构</a></li><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/%E6%B8%B8%E6%88%8F%E6%9C%8D%E5%8A%A1%E5%99%A8/" rel="tag">游戏服务器</a></li><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90/" rel="tag">源码分析</a></li></ul>
+
+    </footer>
+  </div>
+  
+    
+<nav id="article-nav">
+  
+  
+    <a href="/2026/04/02/skynet%20%E6%B8%B8%E6%88%8F%E6%9E%B6%E6%9E%84/" id="article-nav-older" class="article-nav-link-wrap">
+      <strong class="article-nav-caption">后一篇</strong>
+      <div class="article-nav-title">Skynet 游戏服务器框架主体</div>
+    </a>
+  
+</nav>
+
+  
+</article>
+
+
+</section>
+        
+          <aside id="sidebar">
+  
+    
+  <div class="widget-wrap">
+    <h3 class="widget-title">分类</h3>
+    <div class="widget">
+      <ul class="category-list"><li class="category-list-item"><a class="category-list-link" href="/categories/%E6%8A%80%E6%9C%AF%E7%AC%94%E8%AE%B0/">技术笔记</a></li></ul>
+    </div>
+  </div>
+
+
+  
+    
+  <div class="widget-wrap">
+    <h3 class="widget-title">标签</h3>
+    <div class="widget">
+      <ul class="tag-list" itemprop="keywords"><li class="tag-list-item"><a class="tag-list-link" href="/tags/GC/" rel="tag">GC</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Lua/" rel="tag">Lua</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Skynet/" rel="tag">Skynet</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/lua-%E7%9A%84-require/" rel="tag">lua 的 require</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/skynet/" rel="tag">skynet</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E6%9E%B6%E6%9E%84/" rel="tag">架构</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E6%B8%B8%E6%88%8F%E6%9C%8D%E5%8A%A1%E5%99%A8/" rel="tag">游戏服务器</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90/" rel="tag">源码分析</a></li></ul>
+    </div>
+  </div>
+
+
+  
+    
+  <div class="widget-wrap">
+    <h3 class="widget-title">标签云</h3>
+    <div class="widget tagcloud">
+      <a href="/tags/GC/" style="font-size: 13.33px;">GC</a> <a href="/tags/Lua/" style="font-size: 20px;">Lua</a> <a href="/tags/Skynet/" style="font-size: 13.33px;">Skynet</a> <a href="/tags/lua-%E7%9A%84-require/" style="font-size: 10px;">lua 的 require</a> <a href="/tags/skynet/" style="font-size: 10px;">skynet</a> <a href="/tags/%E6%9E%B6%E6%9E%84/" style="font-size: 13.33px;">架构</a> <a href="/tags/%E6%B8%B8%E6%88%8F%E6%9C%8D%E5%8A%A1%E5%99%A8/" style="font-size: 13.33px;">游戏服务器</a> <a href="/tags/%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90/" style="font-size: 16.67px;">源码分析</a>
+    </div>
+  </div>
+
+  
+    
+  <div class="widget-wrap">
+    <h3 class="widget-title">归档</h3>
+    <div class="widget">
+      <ul class="archive-list"><li class="archive-list-item"><a class="archive-list-link" href="/archives/2026/04/">四月 2026</a></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2026/03/">三月 2026</a></li></ul>
+    </div>
+  </div>
+
+
+  
+    
+  <div class="widget-wrap">
+    <h3 class="widget-title">最新文章</h3>
+    <div class="widget">
+      <ul>
+        
+          <li>
+            <a href="/2026/04/03/skynet%20%E6%9C%8D%E5%8A%A1/">Skynet 服务启动机制</a>
+          </li>
+        
+          <li>
+            <a href="/2026/04/02/skynet%20%E6%B8%B8%E6%88%8F%E6%9E%B6%E6%9E%84/">Skynet 游戏服务器框架主体</a>
+          </li>
+        
+          <li>
+            <a href="/2026/03/24/lua%20--%20%E5%88%86%E4%BB%A3gc/">Lua 分代 GC</a>
+          </li>
+        
+          <li>
+            <a href="/2026/03/24/lua%20--%20%E5%A2%9E%E9%87%8Fgc/">Lua 增量 GC</a>
+          </li>
+        
+          <li>
+            <a href="/2026/03/23/lua%20%E6%98%AF%E6%80%8E%E4%B9%88%E8%BF%90%E8%A1%8C%E8%B5%B7%E6%9D%A5%E7%9A%84%20--%20lua_loadfile%E5%8A%A0%E8%BD%BD%E5%AE%8C%E8%84%9A%E6%9C%AC%E5%90%8E%EF%BC%8C%E9%87%8C%E9%9D%A2%E7%9A%84%E6%95%B0%E6%8D%AE%E6%98%AF%E5%A6%82%E4%BD%95%E5%9C%A8lua_pcall%E9%87%8C%E6%89%A7%E8%A1%8C%E7%9A%84%EF%BC%9F/">Lua 是怎么运行起来的 -- lua_loadfile加载完脚本后，里面的数据是如何在lua_pcall里执行的？</a>
+          </li>
+        
+      </ul>
+    </div>
+  </div>
+
+  
+</aside>
+        
+      </div>
+      <footer id="footer">
+  
+  <div class="outer">
+    <div id="footer-info" class="inner">
+      
+      &copy; 2026 你的名字<br>
+      Powered by <a href="https://hexo.io/" target="_blank">Hexo</a>
+    </div>
+  </div>
+</footer>
+
+    </div>
+    <nav id="mobile-nav">
+  
+    <a href="/" class="mobile-nav-link">Home</a>
+  
+    <a href="/archives" class="mobile-nav-link">Archives</a>
+  
+</nav>
+    
+
+
+<script src="/js/jquery-3.6.4.min.js"></script>
+
+
+
+  
+<script src="/fancybox/jquery.fancybox.min.js"></script>
+
+
+
+
+<script src="/js/script.js"></script>
+
+
+
+
+
+  </div>
+</body>
+</html>
