@@ -71,6 +71,60 @@
       <div class="outer">
         <section id="main">
   
+    <article id="post-skynet 客户端通信" class="h-entry article article-type-post" itemprop="blogPost" itemscope itemtype="https://schema.org/BlogPosting">
+  <div class="article-meta">
+    <a href="/2026/04/09/skynet%20%E5%AE%A2%E6%88%B7%E7%AB%AF%E9%80%9A%E4%BF%A1/" class="article-date">
+  <time class="dt-published" datetime="2026-04-09T05:00:00.000Z" itemprop="datePublished">2026-04-09</time>
+</a>
+    
+  <div class="article-category">
+    <a class="article-category-link" href="/categories/%E6%8A%80%E6%9C%AF%E7%AC%94%E8%AE%B0/">技术笔记</a>
+  </div>
+
+  </div>
+  <div class="article-inner">
+    
+    
+      <header class="article-header">
+        
+  
+    <h1 itemprop="name">
+      <a class="p-name article-title" href="/2026/04/09/skynet%20%E5%AE%A2%E6%88%B7%E7%AB%AF%E9%80%9A%E4%BF%A1/">Skynet 客户端通信</a>
+    </h1>
+  
+
+      </header>
+    
+    <div class="e-content article-entry" itemprop="articleBody">
+      
+        <h2 id="概述"><a href="#概述" class="headerlink" title="概述"></a>概述</h2><p>游戏服务器中，处理客户端的 socket 通信是核心功能之一。那么 skynet 是如何监听并连接客户端的 socket 的？连接了 socket，又是如何处理客户端消息的，如何知道需要将这个消息发送到哪个服务的呢？</p>
+<h2 id="Gated-服务"><a href="#Gated-服务" class="headerlink" title="Gated 服务"></a>Gated 服务</h2><p>在启动 gated 服务的时候，里面会通过 <code>socketdriver.listen(address, port)</code> 监听指定的地址和端口。因为所有关于 socket 的操作都在 socket 线程中进行的，所以这里的监听需要通过管道通知 socket 线程来处理创建一个监听 socket。</p>
+<p><code>socket_server_poll()</code> 先检查是否有管道消息（通过读管道），如果有则会根据管道信息的 <code>&#39;L&#39;</code> 字段，创建一个新的 socket，并构造 <code>epoll_event</code> 的用户信息，里面保存着监听这个 fd 的服务信息等，然后通过 <code>sp_add</code> 将用户信息与 <code>epoll_event</code> 中的 <code>data.ptr</code> 中关联起来。</p>
+<p>到这里，监听 socket 的创建就完成了，但是还需要调用 <code>socketdriver.start(socket)</code> 来打开 socket 的读写功能。</p>
+<h3 id="Gated-服务监听流程"><a href="#Gated-服务监听流程" class="headerlink" title="Gated 服务监听流程"></a>Gated 服务监听流程</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br></pre></td><td class="code"><pre><span class="line">┌───────────────────────────────────────┐</span><br><span class="line">│         业务层（gated 服务）           │</span><br><span class="line">└───────────────────┬───────────────────┘</span><br><span class="line">                    │</span><br><span class="line">┌───────────────────▼───────────────────┐</span><br><span class="line">│      socketdriver.listen()             │</span><br><span class="line">└───────────────────┬───────────────────┘</span><br><span class="line">                    │ send_request(&#x27;L&#x27;)</span><br><span class="line">┌───────────────────▼───────────────────┐</span><br><span class="line">│         socket_server (管道)          │</span><br><span class="line">│  ctrl_cmd() → listen_socket()        │</span><br><span class="line">│  ├── do_listen()                      │</span><br><span class="line">│  ├── new_fd()                         │</span><br><span class="line">│  └── type = PLISTEN                   │</span><br><span class="line">└───────────────────────────────────────┘</span><br><span class="line">                    │</span><br><span class="line">┌───────────────────▼───────────────────┐</span><br><span class="line">│      socketdriver.start()            │</span><br><span class="line">│  pause_socket() + resume_socket()   │</span><br><span class="line">└───────────────────┬───────────────────┘</span><br><span class="line">                    │ send_request(&#x27;R&#x27;)</span><br><span class="line">┌───────────────────▼───────────────────┐</span><br><span class="line">│  ctrl_cmd() → resume_socket()        │</span><br><span class="line">│  ├── enable_read(true)                │</span><br><span class="line">│  ├── type: PLISTEN → LISTEN           │</span><br><span class="line">│  └── return SOCKET_OPEN              │</span><br><span class="line">└───────────────────────────────────────┘</span><br><span class="line">                    │</span><br><span class="line">┌───────────────────▼───────────────────┐</span><br><span class="line">│           epoll 等待中...              │</span><br><span class="line">└───────────────────┬───────────────────┘</span><br><span class="line">                    │</span><br><span class="line">┌───────────────────▼───────────────────┐</span><br><span class="line">│     客户端 connect() 触发 accept      │</span><br><span class="line">│  report_accept() → SOCKET_ACCEPT     │</span><br><span class="line">└───────────────────────────────────────┘</span><br></pre></td></tr></table></figure>
+
+<h2 id="客户端连接流程"><a href="#客户端连接流程" class="headerlink" title="客户端连接流程"></a>客户端连接流程</h2><p>当客户端请求连接时，socket 线程 accept 新连接，创建一个新的 socket，将这个 socket <code>new_fd</code> 加入到 epoll 中时，会根据老的监听 socket 中的用户信息与新的 <code>socket_fd</code> 关联起来。这样当客户端有数据请求的时候，socket 中的用户信息里就包含了 gated 的服务 id 了，那么就可以将数据发送到 gated 服务的消息队列中。</p>
+<h3 id="客户端连接转发流程"><a href="#客户端连接转发流程" class="headerlink" title="客户端连接转发流程"></a>客户端连接转发流程</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br></pre></td><td class="code"><pre><span class="line">监听 socket (gated_id = 100)</span><br><span class="line">│</span><br><span class="line">└── opaque = 100</span><br><span class="line">            │</span><br><span class="line">            ▼</span><br><span class="line">    new_fd(client_fd, opaque=100)</span><br><span class="line">            │</span><br><span class="line">            ▼</span><br><span class="line">    新 socket</span><br><span class="line">    opaque = 100</span><br><span class="line">            │</span><br><span class="line">            ▼</span><br><span class="line">    forward_message()</span><br><span class="line">    result-&gt;opaque = 100</span><br><span class="line">            │</span><br><span class="line">            ▼</span><br><span class="line">    skynet_context_push(100, message)</span><br><span class="line">            │</span><br><span class="line">            ▼</span><br><span class="line">    gated 服务（id=100）收到消息</span><br></pre></td></tr></table></figure>
+
+<p>到这里，客户端连接游戏服务器并且发送协议的流程就完成了。</p>
+
+      
+    </div>
+    <footer class="article-footer">
+      <a data-url="https://wenware.github.io/2026/04/09/skynet%20%E5%AE%A2%E6%88%B7%E7%AB%AF%E9%80%9A%E4%BF%A1/" data-id="cmnr8lqar000w9wuo0jd6ebrs" data-title="Skynet 客户端通信" class="article-share-link"><span class="fa fa-share">分享</span></a>
+      
+      
+      
+  <ul class="article-tag-list" itemprop="keywords"><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/skynet/" rel="tag">skynet</a></li><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/%E6%9E%B6%E6%9E%84/" rel="tag">架构</a></li><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/%E6%B8%B8%E6%88%8F%E6%9C%8D%E5%8A%A1%E5%99%A8/" rel="tag">游戏服务器</a></li><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90/" rel="tag">源码分析</a></li></ul>
+
+    </footer>
+  </div>
+  
+</article>
+
+
+
+  
     <article id="post-skynet 服务" class="h-entry article article-type-post" itemprop="blogPost" itemscope itemtype="https://schema.org/BlogPosting">
   <div class="article-meta">
     <a href="/2026/04/03/skynet%20%E6%9C%8D%E5%8A%A1/" class="article-date">
@@ -136,7 +190,7 @@
       
     </div>
     <footer class="article-footer">
-      <a data-url="https://wenware.github.io/2026/04/03/skynet%20%E6%9C%8D%E5%8A%A1/" data-id="cmniddwmi000ayouo4xdb1nj2" data-title="Skynet 服务启动机制" class="article-share-link"><span class="fa fa-share">分享</span></a>
+      <a data-url="https://wenware.github.io/2026/04/03/skynet%20%E6%9C%8D%E5%8A%A1/" data-id="cmnr8lqat000z9wuo311dggpd" data-title="Skynet 服务启动机制" class="article-share-link"><span class="fa fa-share">分享</span></a>
       
       
       
@@ -210,7 +264,7 @@
       
     </div>
     <footer class="article-footer">
-      <a data-url="https://wenware.github.io/2026/04/02/skynet%20%E6%B8%B8%E6%88%8F%E6%9E%B6%E6%9E%84/" data-id="cmniddwmj000byouo7r894bhm" data-title="Skynet 游戏服务器框架主体" class="article-share-link"><span class="fa fa-share">分享</span></a>
+      <a data-url="https://wenware.github.io/2026/04/02/skynet%20%E6%B8%B8%E6%88%8F%E6%9E%B6%E6%9E%84/" data-id="cmnr8lqas000y9wuoaag3dcj5" data-title="Skynet 游戏服务器框架主体" class="article-share-link"><span class="fa fa-share">分享</span></a>
       
       
       
@@ -278,7 +332,7 @@
       
     </div>
     <footer class="article-footer">
-      <a data-url="https://wenware.github.io/2026/03/24/lua%20--%20%E5%88%86%E4%BB%A3gc/" data-id="cmniddwma0001youobcqoe195" data-title="Lua 分代 GC" class="article-share-link"><span class="fa fa-share">分享</span></a>
+      <a data-url="https://wenware.github.io/2026/03/24/lua%20--%20%E5%88%86%E4%BB%A3gc/" data-id="cmnr8lqae00019wuo41n41peo" data-title="Lua 分代 GC" class="article-share-link"><span class="fa fa-share">分享</span></a>
       
       
       
@@ -359,7 +413,7 @@
       
     </div>
     <footer class="article-footer">
-      <a data-url="https://wenware.github.io/2026/03/24/lua%20--%20%E5%A2%9E%E9%87%8Fgc/" data-id="cmniddwmc0002youo8le26xzr" data-title="Lua 增量 GC" class="article-share-link"><span class="fa fa-share">分享</span></a>
+      <a data-url="https://wenware.github.io/2026/03/24/lua%20--%20%E5%A2%9E%E9%87%8Fgc/" data-id="cmnr8lqag00029wuo77ffbhof" data-title="Lua 增量 GC" class="article-share-link"><span class="fa fa-share">分享</span></a>
       
       
       
@@ -429,7 +483,7 @@
       
     </div>
     <footer class="article-footer">
-      <a data-url="https://wenware.github.io/2026/03/23/lua%20%E6%98%AF%E6%80%8E%E4%B9%88%E8%BF%90%E8%A1%8C%E8%B5%B7%E6%9D%A5%E7%9A%84%20--%20lua_loadfile%E5%8A%A0%E8%BD%BD%E5%AE%8C%E8%84%9A%E6%9C%AC%E5%90%8E%EF%BC%8C%E9%87%8C%E9%9D%A2%E7%9A%84%E6%95%B0%E6%8D%AE%E6%98%AF%E5%A6%82%E4%BD%95%E5%9C%A8lua_pcall%E9%87%8C%E6%89%A7%E8%A1%8C%E7%9A%84%EF%BC%9F/" data-id="cmniddwmf0005youo8lwne5bf" data-title="Lua 是怎么运行起来的 -- lua_loadfile加载完脚本后，里面的数据是如何在lua_pcall里执行的？" class="article-share-link"><span class="fa fa-share">分享</span></a>
+      <a data-url="https://wenware.github.io/2026/03/23/lua%20%E6%98%AF%E6%80%8E%E4%B9%88%E8%BF%90%E8%A1%8C%E8%B5%B7%E6%9D%A5%E7%9A%84%20--%20lua_loadfile%E5%8A%A0%E8%BD%BD%E5%AE%8C%E8%84%9A%E6%9C%AC%E5%90%8E%EF%BC%8C%E9%87%8C%E9%9D%A2%E7%9A%84%E6%95%B0%E6%8D%AE%E6%98%AF%E5%A6%82%E4%BD%95%E5%9C%A8lua_pcall%E9%87%8C%E6%89%A7%E8%A1%8C%E7%9A%84%EF%BC%9F/" data-id="cmnr8lqaj00059wuo8vgs94jl" data-title="Lua 是怎么运行起来的 -- lua_loadfile加载完脚本后，里面的数据是如何在lua_pcall里执行的？" class="article-share-link"><span class="fa fa-share">分享</span></a>
       
       
       
@@ -506,7 +560,7 @@
       
     </div>
     <footer class="article-footer">
-      <a data-url="https://wenware.github.io/2026/03/18/lua%20%E6%98%AF%E6%80%8E%E4%B9%88%E8%BF%90%E8%A1%8C%E8%B5%B7%E6%9D%A5%E7%9A%84%20--%20lua_loadfile%E9%87%8C%E6%98%AF%E5%81%9A%E4%BA%86%E4%BB%80%E4%B9%88%E5%91%A2%EF%BC%9F%E6%98%AF%E5%A6%82%E4%BD%95%E4%BA%A7%E7%94%9Flua%E8%84%9A%E6%9C%AC%E7%9A%84%E9%97%AD%E5%8C%85%E7%9A%84%EF%BC%9F/" data-id="cmniddwmh0007youo3c9h15un" data-title="Lua 是怎么运行起来的 -- lua_loadfile里是做了什么呢？是如何产生lua脚本的闭包的？" class="article-share-link"><span class="fa fa-share">分享</span></a>
+      <a data-url="https://wenware.github.io/2026/03/18/lua%20%E6%98%AF%E6%80%8E%E4%B9%88%E8%BF%90%E8%A1%8C%E8%B5%B7%E6%9D%A5%E7%9A%84%20--%20lua_loadfile%E9%87%8C%E6%98%AF%E5%81%9A%E4%BA%86%E4%BB%80%E4%B9%88%E5%91%A2%EF%BC%9F%E6%98%AF%E5%A6%82%E4%BD%95%E4%BA%A7%E7%94%9Flua%E8%84%9A%E6%9C%AC%E7%9A%84%E9%97%AD%E5%8C%85%E7%9A%84%EF%BC%9F/" data-id="cmnr8lqaj00069wuo2hw1d2nb" data-title="Lua 是怎么运行起来的 -- lua_loadfile里是做了什么呢？是如何产生lua脚本的闭包的？" class="article-share-link"><span class="fa fa-share">分享</span></a>
       
       
       
@@ -587,7 +641,7 @@
       
     </div>
     <footer class="article-footer">
-      <a data-url="https://wenware.github.io/2026/03/18/lua%E4%B8%AD%E7%9A%84require%E6%89%A7%E8%A1%8C%E6%B5%81%E7%A8%8B/" data-id="cmniddwmg0006youo6h592jxk" data-title="Lua中的require执行流程" class="article-share-link"><span class="fa fa-share">分享</span></a>
+      <a data-url="https://wenware.github.io/2026/03/18/lua%E4%B8%AD%E7%9A%84require%E6%89%A7%E8%A1%8C%E6%B5%81%E7%A8%8B/" data-id="cmnr8lqar000v9wuof8ri9c26" data-title="Lua中的require执行流程" class="article-share-link"><span class="fa fa-share">分享</span></a>
       
       
       
@@ -635,7 +689,7 @@
       
     </div>
     <footer class="article-footer">
-      <a data-url="https://wenware.github.io/2026/03/05/skynet-call%E6%80%BB%E7%BB%93/" data-id="cmniddwmu001jyouoaqdq9lox" data-title="skynet.call总结" class="article-share-link"><span class="fa fa-share">分享</span></a>
+      <a data-url="https://wenware.github.io/2026/03/05/skynet-call%E6%80%BB%E7%BB%93/" data-id="cmnr8lqau00119wuoh25z2n4z" data-title="skynet.call总结" class="article-share-link"><span class="fa fa-share">分享</span></a>
       
       
       
@@ -675,58 +729,7 @@
       
     </div>
     <footer class="article-footer">
-      <a data-url="https://wenware.github.io/2026/03/05/skynet-call-%E5%85%B7%E4%BD%93%E6%B5%81%E7%A8%8B/" data-id="cmniddwml000fyouo8pqsf6ys" data-title="skynet.call 具体流程" class="article-share-link"><span class="fa fa-share">分享</span></a>
-      
-      
-      
-    </footer>
-  </div>
-  
-</article>
-
-
-
-  
-    <article id="post-hello-world" class="h-entry article article-type-post" itemprop="blogPost" itemscope itemtype="https://schema.org/BlogPosting">
-  <div class="article-meta">
-    <a href="/2026/03/04/hello-world/" class="article-date">
-  <time class="dt-published" datetime="2026-03-04T11:31:32.133Z" itemprop="datePublished">2026-03-04</time>
-</a>
-    
-  </div>
-  <div class="article-inner">
-    
-    
-      <header class="article-header">
-        
-  
-    <h1 itemprop="name">
-      <a class="p-name article-title" href="/2026/03/04/hello-world/">Hello World</a>
-    </h1>
-  
-
-      </header>
-    
-    <div class="e-content article-entry" itemprop="articleBody">
-      
-        <p>Welcome to <a target="_blank" rel="noopener" href="https://hexo.io/">Hexo</a>! This is your very first post. Check <a target="_blank" rel="noopener" href="https://hexo.io/docs/">documentation</a> for more info. If you get any problems when using Hexo, you can find the answer in <a target="_blank" rel="noopener" href="https://hexo.io/docs/troubleshooting.html">troubleshooting</a> or you can ask me on <a target="_blank" rel="noopener" href="https://github.com/hexojs/hexo/issues">GitHub</a>.</p>
-<h2 id="Quick-Start"><a href="#Quick-Start" class="headerlink" title="Quick Start"></a>Quick Start</h2><h3 id="Create-a-new-post"><a href="#Create-a-new-post" class="headerlink" title="Create a new post"></a>Create a new post</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">$ hexo new <span class="string">&quot;My New Post&quot;</span></span><br></pre></td></tr></table></figure>
-
-<p>More info: <a target="_blank" rel="noopener" href="https://hexo.io/docs/writing.html">Writing</a></p>
-<h3 id="Run-server"><a href="#Run-server" class="headerlink" title="Run server"></a>Run server</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">$ hexo server</span><br></pre></td></tr></table></figure>
-
-<p>More info: <a target="_blank" rel="noopener" href="https://hexo.io/docs/server.html">Server</a></p>
-<h3 id="Generate-static-files"><a href="#Generate-static-files" class="headerlink" title="Generate static files"></a>Generate static files</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">$ hexo generate</span><br></pre></td></tr></table></figure>
-
-<p>More info: <a target="_blank" rel="noopener" href="https://hexo.io/docs/generating.html">Generating</a></p>
-<h3 id="Deploy-to-remote-sites"><a href="#Deploy-to-remote-sites" class="headerlink" title="Deploy to remote sites"></a>Deploy to remote sites</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">$ hexo deploy</span><br></pre></td></tr></table></figure>
-
-<p>More info: <a target="_blank" rel="noopener" href="https://hexo.io/docs/one-command-deployment.html">Deployment</a></p>
-
-      
-    </div>
-    <footer class="article-footer">
-      <a data-url="https://wenware.github.io/2026/03/04/hello-world/" data-id="cmniddwm60000youoeyz6c89m" data-title="Hello World" class="article-share-link"><span class="fa fa-share">分享</span></a>
+      <a data-url="https://wenware.github.io/2026/03/05/skynet-call-%E5%85%B7%E4%BD%93%E6%B5%81%E7%A8%8B/" data-id="cmnr8lqav00159wuo803l8fgc" data-title="skynet.call 具体流程" class="article-share-link"><span class="fa fa-share">分享</span></a>
       
       
       
@@ -739,6 +742,11 @@
 
   
 
+
+  <nav id="page-nav">
+    
+    <span class="page-number current">1</span><a class="page-number" href="/page/2/">2</a><a class="extend next" rel="next" href="/page/2/">下一页 &raquo;</a>
+  </nav>
 
 </section>
         
@@ -768,7 +776,7 @@
   <div class="widget-wrap">
     <h3 class="widget-title">标签云</h3>
     <div class="widget tagcloud">
-      <a href="/tags/GC/" style="font-size: 12.5px;">GC</a> <a href="/tags/Lua/" style="font-size: 20px;">Lua</a> <a href="/tags/lua-%E7%9A%84-require/" style="font-size: 10px;">lua 的 require</a> <a href="/tags/skynet/" style="font-size: 15px;">skynet</a> <a href="/tags/%E6%9E%B6%E6%9E%84/" style="font-size: 12.5px;">架构</a> <a href="/tags/%E6%B8%B8%E6%88%8F%E6%9C%8D%E5%8A%A1%E5%99%A8/" style="font-size: 12.5px;">游戏服务器</a> <a href="/tags/%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90/" style="font-size: 17.5px;">源码分析</a>
+      <a href="/tags/GC/" style="font-size: 12.5px;">GC</a> <a href="/tags/Lua/" style="font-size: 20px;">Lua</a> <a href="/tags/lua-%E7%9A%84-require/" style="font-size: 10px;">lua 的 require</a> <a href="/tags/skynet/" style="font-size: 17.5px;">skynet</a> <a href="/tags/%E6%9E%B6%E6%9E%84/" style="font-size: 15px;">架构</a> <a href="/tags/%E6%B8%B8%E6%88%8F%E6%9C%8D%E5%8A%A1%E5%99%A8/" style="font-size: 15px;">游戏服务器</a> <a href="/tags/%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90/" style="font-size: 20px;">源码分析</a>
     </div>
   </div>
 
@@ -790,6 +798,10 @@
       <ul>
         
           <li>
+            <a href="/2026/04/09/skynet%20%E5%AE%A2%E6%88%B7%E7%AB%AF%E9%80%9A%E4%BF%A1/">Skynet 客户端通信</a>
+          </li>
+        
+          <li>
             <a href="/2026/04/03/skynet%20%E6%9C%8D%E5%8A%A1/">Skynet 服务启动机制</a>
           </li>
         
@@ -803,10 +815,6 @@
         
           <li>
             <a href="/2026/03/24/lua%20--%20%E5%A2%9E%E9%87%8Fgc/">Lua 增量 GC</a>
-          </li>
-        
-          <li>
-            <a href="/2026/03/23/lua%20%E6%98%AF%E6%80%8E%E4%B9%88%E8%BF%90%E8%A1%8C%E8%B5%B7%E6%9D%A5%E7%9A%84%20--%20lua_loadfile%E5%8A%A0%E8%BD%BD%E5%AE%8C%E8%84%9A%E6%9C%AC%E5%90%8E%EF%BC%8C%E9%87%8C%E9%9D%A2%E7%9A%84%E6%95%B0%E6%8D%AE%E6%98%AF%E5%A6%82%E4%BD%95%E5%9C%A8lua_pcall%E9%87%8C%E6%89%A7%E8%A1%8C%E7%9A%84%EF%BC%9F/">Lua 是怎么运行起来的 -- lua_loadfile加载完脚本后，里面的数据是如何在lua_pcall里执行的？</a>
           </li>
         
       </ul>
