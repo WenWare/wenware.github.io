@@ -9,12 +9,12 @@
   <meta name="description" content="概述游戏服务器中，除了需要处理客户端数据外，服务间的处理也尤为重要。服务间通信中，是如何通知对方的，对方如果有数据返回，又是如何与当前的请求绑定的？接下来，先只从单节点的服务间通信开始剖析，两个服务是如何通信的。 在 Skynet 中，单节点的服务间请求有：  skynet.send skynet.call skynet timer 线程  skynet.send当服务 A 发送数据给服务 B 时">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Skynet 服务间通信">
-<meta property="og:url" content="https://wenware.github.io/2026/04/09/skynet%20%E6%9C%8D%E5%8A%A1%E9%97%B4%E9%80%9A%E4%BF%A1/index.html">
+<meta property="og:url" content="https://wenware.github.io/2026/04/13/skynet%20%E6%9C%8D%E5%8A%A1%E9%97%B4%E9%80%9A%E4%BF%A1/index.html">
 <meta property="og:site_name" content="我的个人博客">
 <meta property="og:description" content="概述游戏服务器中，除了需要处理客户端数据外，服务间的处理也尤为重要。服务间通信中，是如何通知对方的，对方如果有数据返回，又是如何与当前的请求绑定的？接下来，先只从单节点的服务间通信开始剖析，两个服务是如何通信的。 在 Skynet 中，单节点的服务间请求有：  skynet.send skynet.call skynet timer 线程  skynet.send当服务 A 发送数据给服务 B 时">
 <meta property="og:locale" content="zh_CN">
-<meta property="article:published_time" content="2026-04-09T06:00:00.000Z">
-<meta property="article:modified_time" content="2026-04-13T07:30:02.191Z">
+<meta property="article:published_time" content="2026-04-13T06:00:00.000Z">
+<meta property="article:modified_time" content="2026-04-13T07:30:29.712Z">
 <meta property="article:author" content="你的名字">
 <meta property="article:tag" content="源码分析">
 <meta property="article:tag" content="skynet">
@@ -79,8 +79,8 @@
       <div class="outer">
         <section id="main"><article id="post-skynet 服务间通信" class="h-entry article article-type-post" itemprop="blogPost" itemscope itemtype="https://schema.org/BlogPosting">
   <div class="article-meta">
-    <a href="/2026/04/09/skynet%20%E6%9C%8D%E5%8A%A1%E9%97%B4%E9%80%9A%E4%BF%A1/" class="article-date">
-  <time class="dt-published" datetime="2026-04-09T06:00:00.000Z" itemprop="datePublished">2026-04-09</time>
+    <a href="/2026/04/13/skynet%20%E6%9C%8D%E5%8A%A1%E9%97%B4%E9%80%9A%E4%BF%A1/" class="article-date">
+  <time class="dt-published" datetime="2026-04-13T06:00:00.000Z" itemprop="datePublished">2026-04-13</time>
 </a>
     
   <div class="article-category">
@@ -141,7 +141,7 @@
       
     </div>
     <footer class="article-footer">
-      <a data-url="https://wenware.github.io/2026/04/09/skynet%20%E6%9C%8D%E5%8A%A1%E9%97%B4%E9%80%9A%E4%BF%A1/" data-id="cmnwvhzlq000fa0uodobkbvwu" data-title="Skynet 服务间通信" class="article-share-link"><span class="fa fa-share">分享</span></a>
+      <a data-url="https://wenware.github.io/2026/04/13/skynet%20%E6%9C%8D%E5%8A%A1%E9%97%B4%E9%80%9A%E4%BF%A1/" data-id="cmnwvhzlq000fa0uodobkbvwu" data-title="Skynet 服务间通信" class="article-share-link"><span class="fa fa-share">分享</span></a>
       
       
       
@@ -215,7 +215,7 @@
       <ul>
         
           <li>
-            <a href="/2026/04/09/skynet%20%E6%9C%8D%E5%8A%A1%E9%97%B4%E9%80%9A%E4%BF%A1/">Skynet 服务间通信</a>
+            <a href="/2026/04/13/skynet%20%E6%9C%8D%E5%8A%A1%E9%97%B4%E9%80%9A%E4%BF%A1/">Skynet 服务间通信</a>
           </li>
         
           <li>
