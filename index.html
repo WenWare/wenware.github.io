@@ -71,6 +71,84 @@
       <div class="outer">
         <section id="main">
   
+    <article id="post-skynet 服务间通信" class="h-entry article article-type-post" itemprop="blogPost" itemscope itemtype="https://schema.org/BlogPosting">
+  <div class="article-meta">
+    <a href="/2026/04/09/skynet%20%E6%9C%8D%E5%8A%A1%E9%97%B4%E9%80%9A%E4%BF%A1/" class="article-date">
+  <time class="dt-published" datetime="2026-04-09T06:00:00.000Z" itemprop="datePublished">2026-04-09</time>
+</a>
+    
+  <div class="article-category">
+    <a class="article-category-link" href="/categories/%E6%8A%80%E6%9C%AF%E7%AC%94%E8%AE%B0/">技术笔记</a>
+  </div>
+
+  </div>
+  <div class="article-inner">
+    
+    
+      <header class="article-header">
+        
+  
+    <h1 itemprop="name">
+      <a class="p-name article-title" href="/2026/04/09/skynet%20%E6%9C%8D%E5%8A%A1%E9%97%B4%E9%80%9A%E4%BF%A1/">Skynet 服务间通信</a>
+    </h1>
+  
+
+      </header>
+    
+    <div class="e-content article-entry" itemprop="articleBody">
+      
+        <h2 id="概述"><a href="#概述" class="headerlink" title="概述"></a>概述</h2><p>游戏服务器中，除了需要处理客户端数据外，服务间的处理也尤为重要。服务间通信中，是如何通知对方的，对方如果有数据返回，又是如何与当前的请求绑定的？接下来，先只从单节点的服务间通信开始剖析，两个服务是如何通信的。</p>
+<p>在 Skynet 中，单节点的服务间请求有：</p>
+<ol>
+<li><code>skynet.send</code></li>
+<li><code>skynet.call</code></li>
+<li><code>skynet timer</code> 线程</li>
+</ol>
+<h2 id="skynet-send"><a href="#skynet-send" class="headerlink" title="skynet.send"></a>skynet.send</h2><p>当服务 A 发送数据给服务 B 时，如果不需要返回数据的话，可以直接使用 <code>skynet.send</code> 发送数据。</p>
+<figure class="highlight lua"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">function</span> <span class="title">skynet.send</span><span class="params">(addr, typename, ...)</span></span></span><br><span class="line">    <span class="keyword">local</span> p = proto[typename]</span><br><span class="line">    <span class="keyword">return</span> c.send(addr, p.id, <span class="number">0</span> , p.pack(...))</span><br><span class="line"><span class="keyword">end</span></span><br></pre></td></tr></table></figure>
+
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">static</span> <span class="type">int</span>              -- lua-skynet.c</span><br><span class="line"><span class="title function_">lsend</span><span class="params">(lua_State *L)</span> &#123;</span><br><span class="line">    <span class="keyword">return</span> send_message(L, <span class="number">0</span>, <span class="number">2</span>);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">if</span> (dest_string) &#123;      -- lua-skynet.c</span><br><span class="line">    session = skynet_sendname(context, source, dest_string, type, session , msg, len);</span><br><span class="line">&#125; <span class="keyword">else</span> &#123;</span><br><span class="line">    session = skynet_send(context, source, dest, type, session , msg, len);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">skynet_send(<span class="keyword">struct</span> skynet_context * context, <span class="type">uint32_t</span> source, <span class="type">uint32_t</span> destination , <span class="type">int</span> type, <span class="type">int</span> session, <span class="type">void</span> * data, <span class="type">size_t</span> sz) &#123;</span><br><span class="line">    ...</span><br><span class="line">    _filter_args(context, type, &amp;session, (<span class="type">void</span> **)&amp;data, &amp;sz);         -- 这里会根据PTYPE_TAG_ALLOCSESSION 对session 进行+<span class="number">1</span>处理，用来唯一标识当前的请求。</span><br><span class="line">    ...</span><br><span class="line">    <span class="keyword">if</span> (skynet_context_push(destination, &amp;smsg)) &#123;      -- skynet_server.c</span><br><span class="line">        <span class="title function_">skynet_free</span><span class="params">(data)</span>;</span><br><span class="line">        <span class="keyword">return</span> <span class="number">-1</span>;</span><br><span class="line">    &#125;</span><br><span class="line">    ...</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>如上述代码调用链展示，抛开 Skynet 的 master&#x2F;slave 集群考虑，服务 A 在使用 <code>skynet.send</code> 的时候，最终会直接在对方的次级消息队列中添加一条消息，而服务 B 则在 worker 线程中处理对应的消息。</p>
+<h2 id="skynet-call"><a href="#skynet-call" class="headerlink" title="skynet.call"></a>skynet.call</h2><p>当服务 A 请求服务 B 处理数据并且需要返回数据给服务 A 时，则需要使用 <code>skynet.call</code> 请求处理并等待接收处理后的数据。</p>
+<figure class="highlight lua"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">function</span> <span class="title">skynet.call</span><span class="params">(addr, typename, ...)</span></span></span><br><span class="line">    <span class="keyword">local</span> tag = session_coroutine_tracetag[running_thread]</span><br><span class="line">    <span class="keyword">if</span> tag <span class="keyword">then</span></span><br><span class="line">        c.trace(tag, <span class="string">&quot;call&quot;</span>, <span class="number">2</span>)</span><br><span class="line">        c.send(addr, skynet.PTYPE_TRACE, <span class="number">0</span>, tag)</span><br><span class="line">    <span class="keyword">end</span></span><br><span class="line"></span><br><span class="line">    <span class="keyword">local</span> p = proto[typename]</span><br><span class="line">    <span class="keyword">local</span> session = c.send(addr, p.id , <span class="literal">nil</span> , p.pack(...))</span><br><span class="line">    <span class="keyword">if</span> session == <span class="literal">nil</span> <span class="keyword">then</span></span><br><span class="line">        <span class="built_in">error</span>(<span class="string">&quot;call to invalid address &quot;</span> .. skynet.address(addr))</span><br><span class="line">    <span class="keyword">end</span></span><br><span class="line">    <span class="keyword">return</span> p.<span class="built_in">unpack</span>(yield_call(addr, session))</span><br><span class="line"><span class="keyword">end</span></span><br></pre></td></tr></table></figure>
+
+<p>可以看到，服务 A 在 <code>skynet.call</code> 与 <code>skynet.send</code> 的区别在于，在调用后，会根据返回的 <code>session</code> 来等待服务 B 的处理结果。</p>
+<p>那么 B 服务在处理完成后，会怎么将结果返回给服务 A？</p>
+<p>一般情况下，服务在 <code>skynet.start(function())</code> 中，处理完所有逻辑后，最终会调用 <code>skynet.ret()</code> 来返回处理结果。</p>
+<figure class="highlight lua"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">function</span> <span class="title">skynet.ret</span><span class="params">(msg, sz)</span></span>            <span class="comment">-- 服务B返回</span></span><br><span class="line">    msg = msg <span class="keyword">or</span> <span class="string">&quot;&quot;</span></span><br><span class="line">    ...</span><br><span class="line">    <span class="keyword">local</span> ret = c.send(co_address, skynet.PTYPE_RESPONSE, co_session, msg, sz)</span><br><span class="line">    <span class="keyword">if</span> ret <span class="keyword">then</span></span><br><span class="line">        <span class="keyword">return</span> <span class="literal">true</span></span><br><span class="line">    <span class="keyword">elseif</span> ret == <span class="literal">false</span> <span class="keyword">then</span></span><br><span class="line">        <span class="comment">-- If the package is too large, returns false. so we should report error back</span></span><br><span class="line">        c.send(co_address, skynet.PTYPE_ERROR, co_session, <span class="string">&quot;&quot;</span>)</span><br><span class="line">    <span class="keyword">end</span></span><br><span class="line">    <span class="keyword">return</span> <span class="literal">false</span></span><br><span class="line"><span class="keyword">end</span></span><br></pre></td></tr></table></figure>
+
+<p>如上述代码，服务 B 处理完成后，会将会话中的 <code>session</code> 作为标识，将处理结果发送给服务 A，并且通信类型为：<code>skynet.PTYPE_RESPONSE</code>。</p>
+<p>服务 B 处理完成后，则已经结束了当前会话，服务 A 进行最后的逻辑处理。</p>
+<p>服务 A 在收到消息时，会根据协议类型来判断是新的消息，还是旧的消息处理，需要唤起对应的协程，如：</p>
+<figure class="highlight lua"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">local</span> <span class="function"><span class="keyword">function</span> <span class="title">raw_dispatch_message</span><span class="params">(prototype, msg, sz, session, source)</span></span></span><br><span class="line">    <span class="comment">-- skynet.PTYPE_RESPONSE = 1, read skynet.h</span></span><br><span class="line">    <span class="keyword">if</span> prototype == <span class="number">1</span> <span class="keyword">then</span></span><br><span class="line">        <span class="keyword">local</span> co = session_id_coroutine[session]</span><br><span class="line">        <span class="keyword">if</span> co == <span class="string">&quot;BREAK&quot;</span> <span class="keyword">then</span></span><br><span class="line">            session_id_coroutine[session] = <span class="literal">nil</span></span><br><span class="line">        <span class="keyword">elseif</span> co == <span class="literal">nil</span> <span class="keyword">then</span></span><br><span class="line">            unknown_response(session, source, msg, sz)</span><br><span class="line">        <span class="keyword">else</span></span><br><span class="line">            <span class="keyword">local</span> tag = session_coroutine_tracetag[co]</span><br><span class="line">            <span class="keyword">if</span> tag <span class="keyword">then</span> c.trace(tag, <span class="string">&quot;resume&quot;</span>) <span class="keyword">end</span></span><br><span class="line">            session_id_coroutine[session] = <span class="literal">nil</span></span><br><span class="line">            suspend(co, coroutine_resume(co, <span class="literal">true</span>, msg, sz, session))</span><br><span class="line">        <span class="keyword">end</span></span><br><span class="line">    <span class="keyword">else</span></span><br><span class="line">        ...</span><br><span class="line">    <span class="keyword">end</span></span><br><span class="line"><span class="keyword">end</span></span><br></pre></td></tr></table></figure>
+
+<p>分发消息时，会通过 <code>session</code> 来获取对应的协程，从而唤起协程继续处理。</p>
+<h2 id="skynet-timer-线程"><a href="#skynet-timer-线程" class="headerlink" title="skynet timer 线程"></a>skynet timer 线程</h2><p>当服务 A 需要定时处理数据时，可以使用 <code>skynet.timer</code> 来设置定时任务。</p>
+<p>当 timer 线程获取到当轮需要执行的定时任务列表时，会将当前的消息处理任务加入对应的次级消息队列中。</p>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>至此，单节点服务间通信的流程就完成了。</p>
+
+      
+    </div>
+    <footer class="article-footer">
+      <a data-url="https://wenware.github.io/2026/04/09/skynet%20%E6%9C%8D%E5%8A%A1%E9%97%B4%E9%80%9A%E4%BF%A1/" data-id="cmnwvhzlq000fa0uodobkbvwu" data-title="Skynet 服务间通信" class="article-share-link"><span class="fa fa-share">分享</span></a>
+      
+      
+      
+  <ul class="article-tag-list" itemprop="keywords"><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/skynet/" rel="tag">skynet</a></li><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/%E6%9E%B6%E6%9E%84/" rel="tag">架构</a></li><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/%E6%B8%B8%E6%88%8F%E6%9C%8D%E5%8A%A1%E5%99%A8/" rel="tag">游戏服务器</a></li><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90/" rel="tag">源码分析</a></li></ul>
+
+    </footer>
+  </div>
+  
+</article>
+
+
+
+  
     <article id="post-skynet 客户端通信" class="h-entry article article-type-post" itemprop="blogPost" itemscope itemtype="https://schema.org/BlogPosting">
   <div class="article-meta">
     <a href="/2026/04/09/skynet%20%E5%AE%A2%E6%88%B7%E7%AB%AF%E9%80%9A%E4%BF%A1/" class="article-date">
@@ -111,7 +189,7 @@
       
     </div>
     <footer class="article-footer">
-      <a data-url="https://wenware.github.io/2026/04/09/skynet%20%E5%AE%A2%E6%88%B7%E7%AB%AF%E9%80%9A%E4%BF%A1/" data-id="cmnr8lqar000w9wuo0jd6ebrs" data-title="Skynet 客户端通信" class="article-share-link"><span class="fa fa-share">分享</span></a>
+      <a data-url="https://wenware.github.io/2026/04/09/skynet%20%E5%AE%A2%E6%88%B7%E7%AB%AF%E9%80%9A%E4%BF%A1/" data-id="cmnwvhzlo000aa0uob52p9255" data-title="Skynet 客户端通信" class="article-share-link"><span class="fa fa-share">分享</span></a>
       
       
       
@@ -190,7 +268,7 @@
       
     </div>
     <footer class="article-footer">
-      <a data-url="https://wenware.github.io/2026/04/03/skynet%20%E6%9C%8D%E5%8A%A1/" data-id="cmnr8lqat000z9wuo311dggpd" data-title="Skynet 服务启动机制" class="article-share-link"><span class="fa fa-share">分享</span></a>
+      <a data-url="https://wenware.github.io/2026/04/03/skynet%20%E6%9C%8D%E5%8A%A1/" data-id="cmnwvhzlp000ba0uo0skn3f6s" data-title="Skynet 服务启动机制" class="article-share-link"><span class="fa fa-share">分享</span></a>
       
       
       
@@ -264,7 +342,7 @@
       
     </div>
     <footer class="article-footer">
-      <a data-url="https://wenware.github.io/2026/04/02/skynet%20%E6%B8%B8%E6%88%8F%E6%9E%B6%E6%9E%84/" data-id="cmnr8lqas000y9wuoaag3dcj5" data-title="Skynet 游戏服务器框架主体" class="article-share-link"><span class="fa fa-share">分享</span></a>
+      <a data-url="https://wenware.github.io/2026/04/02/skynet%20%E6%B8%B8%E6%88%8F%E6%9E%B6%E6%9E%84/" data-id="cmnwvhzls000ka0uo4xn6hv35" data-title="Skynet 游戏服务器框架主体" class="article-share-link"><span class="fa fa-share">分享</span></a>
       
       
       
@@ -332,7 +410,7 @@
       
     </div>
     <footer class="article-footer">
-      <a data-url="https://wenware.github.io/2026/03/24/lua%20--%20%E5%88%86%E4%BB%A3gc/" data-id="cmnr8lqae00019wuo41n41peo" data-title="Lua 分代 GC" class="article-share-link"><span class="fa fa-share">分享</span></a>
+      <a data-url="https://wenware.github.io/2026/03/24/lua%20--%20%E5%88%86%E4%BB%A3gc/" data-id="cmnwvhzli0002a0uo95fx7qc5" data-title="Lua 分代 GC" class="article-share-link"><span class="fa fa-share">分享</span></a>
       
       
       
@@ -413,7 +491,7 @@
       
     </div>
     <footer class="article-footer">
-      <a data-url="https://wenware.github.io/2026/03/24/lua%20--%20%E5%A2%9E%E9%87%8Fgc/" data-id="cmnr8lqag00029wuo77ffbhof" data-title="Lua 增量 GC" class="article-share-link"><span class="fa fa-share">分享</span></a>
+      <a data-url="https://wenware.github.io/2026/03/24/lua%20--%20%E5%A2%9E%E9%87%8Fgc/" data-id="cmnwvhzlh0001a0uo97i2h1ct" data-title="Lua 增量 GC" class="article-share-link"><span class="fa fa-share">分享</span></a>
       
       
       
@@ -483,7 +561,7 @@
       
     </div>
     <footer class="article-footer">
-      <a data-url="https://wenware.github.io/2026/03/23/lua%20%E6%98%AF%E6%80%8E%E4%B9%88%E8%BF%90%E8%A1%8C%E8%B5%B7%E6%9D%A5%E7%9A%84%20--%20lua_loadfile%E5%8A%A0%E8%BD%BD%E5%AE%8C%E8%84%9A%E6%9C%AC%E5%90%8E%EF%BC%8C%E9%87%8C%E9%9D%A2%E7%9A%84%E6%95%B0%E6%8D%AE%E6%98%AF%E5%A6%82%E4%BD%95%E5%9C%A8lua_pcall%E9%87%8C%E6%89%A7%E8%A1%8C%E7%9A%84%EF%BC%9F/" data-id="cmnr8lqaj00059wuo8vgs94jl" data-title="Lua 是怎么运行起来的 -- lua_loadfile加载完脚本后，里面的数据是如何在lua_pcall里执行的？" class="article-share-link"><span class="fa fa-share">分享</span></a>
+      <a data-url="https://wenware.github.io/2026/03/23/lua%20%E6%98%AF%E6%80%8E%E4%B9%88%E8%BF%90%E8%A1%8C%E8%B5%B7%E6%9D%A5%E7%9A%84%20--%20lua_loadfile%E5%8A%A0%E8%BD%BD%E5%AE%8C%E8%84%9A%E6%9C%AC%E5%90%8E%EF%BC%8C%E9%87%8C%E9%9D%A2%E7%9A%84%E6%95%B0%E6%8D%AE%E6%98%AF%E5%A6%82%E4%BD%95%E5%9C%A8lua_pcall%E9%87%8C%E6%89%A7%E8%A1%8C%E7%9A%84%EF%BC%9F/" data-id="cmnwvhzll0005a0uob5t8cqcg" data-title="Lua 是怎么运行起来的 -- lua_loadfile加载完脚本后，里面的数据是如何在lua_pcall里执行的？" class="article-share-link"><span class="fa fa-share">分享</span></a>
       
       
       
@@ -560,7 +638,7 @@
       
     </div>
     <footer class="article-footer">
-      <a data-url="https://wenware.github.io/2026/03/18/lua%20%E6%98%AF%E6%80%8E%E4%B9%88%E8%BF%90%E8%A1%8C%E8%B5%B7%E6%9D%A5%E7%9A%84%20--%20lua_loadfile%E9%87%8C%E6%98%AF%E5%81%9A%E4%BA%86%E4%BB%80%E4%B9%88%E5%91%A2%EF%BC%9F%E6%98%AF%E5%A6%82%E4%BD%95%E4%BA%A7%E7%94%9Flua%E8%84%9A%E6%9C%AC%E7%9A%84%E9%97%AD%E5%8C%85%E7%9A%84%EF%BC%9F/" data-id="cmnr8lqaj00069wuo2hw1d2nb" data-title="Lua 是怎么运行起来的 -- lua_loadfile里是做了什么呢？是如何产生lua脚本的闭包的？" class="article-share-link"><span class="fa fa-share">分享</span></a>
+      <a data-url="https://wenware.github.io/2026/03/18/lua%20%E6%98%AF%E6%80%8E%E4%B9%88%E8%BF%90%E8%A1%8C%E8%B5%B7%E6%9D%A5%E7%9A%84%20--%20lua_loadfile%E9%87%8C%E6%98%AF%E5%81%9A%E4%BA%86%E4%BB%80%E4%B9%88%E5%91%A2%EF%BC%9F%E6%98%AF%E5%A6%82%E4%BD%95%E4%BA%A7%E7%94%9Flua%E8%84%9A%E6%9C%AC%E7%9A%84%E9%97%AD%E5%8C%85%E7%9A%84%EF%BC%9F/" data-id="cmnwvhzlm0006a0uog9c8e1kn" data-title="Lua 是怎么运行起来的 -- lua_loadfile里是做了什么呢？是如何产生lua脚本的闭包的？" class="article-share-link"><span class="fa fa-share">分享</span></a>
       
       
       
@@ -641,7 +719,7 @@
       
     </div>
     <footer class="article-footer">
-      <a data-url="https://wenware.github.io/2026/03/18/lua%E4%B8%AD%E7%9A%84require%E6%89%A7%E8%A1%8C%E6%B5%81%E7%A8%8B/" data-id="cmnr8lqar000v9wuof8ri9c26" data-title="Lua中的require执行流程" class="article-share-link"><span class="fa fa-share">分享</span></a>
+      <a data-url="https://wenware.github.io/2026/03/18/lua%E4%B8%AD%E7%9A%84require%E6%89%A7%E8%A1%8C%E6%B5%81%E7%A8%8B/" data-id="cmnwvhzlm0007a0uodqiug9pr" data-title="Lua中的require执行流程" class="article-share-link"><span class="fa fa-share">分享</span></a>
       
       
       
@@ -689,50 +767,12 @@
       
     </div>
     <footer class="article-footer">
-      <a data-url="https://wenware.github.io/2026/03/05/skynet-call%E6%80%BB%E7%BB%93/" data-id="cmnr8lqau00119wuoh25z2n4z" data-title="skynet.call总结" class="article-share-link"><span class="fa fa-share">分享</span></a>
+      <a data-url="https://wenware.github.io/2026/03/05/skynet-call%E6%80%BB%E7%BB%93/" data-id="cmnwvhzm20022a0uo5ltx74qy" data-title="skynet.call总结" class="article-share-link"><span class="fa fa-share">分享</span></a>
       
       
       
   <ul class="article-tag-list" itemprop="keywords"><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/Lua/" rel="tag">Lua</a></li><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/skynet/" rel="tag">skynet</a></li></ul>
 
-    </footer>
-  </div>
-  
-</article>
-
-
-
-  
-    <article id="post-skynet-call-具体流程" class="h-entry article article-type-post" itemprop="blogPost" itemscope itemtype="https://schema.org/BlogPosting">
-  <div class="article-meta">
-    <a href="/2026/03/05/skynet-call-%E5%85%B7%E4%BD%93%E6%B5%81%E7%A8%8B/" class="article-date">
-  <time class="dt-published" datetime="2026-03-05T02:10:04.000Z" itemprop="datePublished">2026-03-05</time>
-</a>
-    
-  </div>
-  <div class="article-inner">
-    
-    
-      <header class="article-header">
-        
-  
-    <h1 itemprop="name">
-      <a class="p-name article-title" href="/2026/03/05/skynet-call-%E5%85%B7%E4%BD%93%E6%B5%81%E7%A8%8B/">skynet.call 具体流程</a>
-    </h1>
-  
-
-      </header>
-    
-    <div class="e-content article-entry" itemprop="articleBody">
-      
-        
-      
-    </div>
-    <footer class="article-footer">
-      <a data-url="https://wenware.github.io/2026/03/05/skynet-call-%E5%85%B7%E4%BD%93%E6%B5%81%E7%A8%8B/" data-id="cmnr8lqav00159wuo803l8fgc" data-title="skynet.call 具体流程" class="article-share-link"><span class="fa fa-share">分享</span></a>
-      
-      
-      
     </footer>
   </div>
   
@@ -776,7 +816,7 @@
   <div class="widget-wrap">
     <h3 class="widget-title">标签云</h3>
     <div class="widget tagcloud">
-      <a href="/tags/GC/" style="font-size: 12.5px;">GC</a> <a href="/tags/Lua/" style="font-size: 20px;">Lua</a> <a href="/tags/lua-%E7%9A%84-require/" style="font-size: 10px;">lua 的 require</a> <a href="/tags/skynet/" style="font-size: 17.5px;">skynet</a> <a href="/tags/%E6%9E%B6%E6%9E%84/" style="font-size: 15px;">架构</a> <a href="/tags/%E6%B8%B8%E6%88%8F%E6%9C%8D%E5%8A%A1%E5%99%A8/" style="font-size: 15px;">游戏服务器</a> <a href="/tags/%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90/" style="font-size: 20px;">源码分析</a>
+      <a href="/tags/GC/" style="font-size: 12px;">GC</a> <a href="/tags/Lua/" style="font-size: 18px;">Lua</a> <a href="/tags/lua-%E7%9A%84-require/" style="font-size: 10px;">lua 的 require</a> <a href="/tags/skynet/" style="font-size: 16px;">skynet</a> <a href="/tags/%E6%9E%B6%E6%9E%84/" style="font-size: 14px;">架构</a> <a href="/tags/%E6%B8%B8%E6%88%8F%E6%9C%8D%E5%8A%A1%E5%99%A8/" style="font-size: 14px;">游戏服务器</a> <a href="/tags/%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90/" style="font-size: 20px;">源码分析</a>
     </div>
   </div>
 
@@ -798,6 +838,10 @@
       <ul>
         
           <li>
+            <a href="/2026/04/09/skynet%20%E6%9C%8D%E5%8A%A1%E9%97%B4%E9%80%9A%E4%BF%A1/">Skynet 服务间通信</a>
+          </li>
+        
+          <li>
             <a href="/2026/04/09/skynet%20%E5%AE%A2%E6%88%B7%E7%AB%AF%E9%80%9A%E4%BF%A1/">Skynet 客户端通信</a>
           </li>
         
@@ -811,10 +855,6 @@
         
           <li>
             <a href="/2026/03/24/lua%20--%20%E5%88%86%E4%BB%A3gc/">Lua 分代 GC</a>
-          </li>
-        
-          <li>
-            <a href="/2026/03/24/lua%20--%20%E5%A2%9E%E9%87%8Fgc/">Lua 增量 GC</a>
           </li>
         
       </ul>
