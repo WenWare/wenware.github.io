@@ -71,6 +71,71 @@
       <div class="outer">
         <section id="main">
   
+    <article id="post-skynet 集群中的服务间通信" class="h-entry article article-type-post" itemprop="blogPost" itemscope itemtype="https://schema.org/BlogPosting">
+  <div class="article-meta">
+    <a href="/2026/04/13/skynet%20%E9%9B%86%E7%BE%A4%E4%B8%AD%E7%9A%84%E6%9C%8D%E5%8A%A1%E9%97%B4%E9%80%9A%E4%BF%A1/" class="article-date">
+  <time class="dt-published" datetime="2026-04-13T08:00:00.000Z" itemprop="datePublished">2026-04-13</time>
+</a>
+    
+  <div class="article-category">
+    <a class="article-category-link" href="/categories/%E6%8A%80%E6%9C%AF%E7%AC%94%E8%AE%B0/">技术笔记</a>
+  </div>
+
+  </div>
+  <div class="article-inner">
+    
+    
+      <header class="article-header">
+        
+  
+    <h1 itemprop="name">
+      <a class="p-name article-title" href="/2026/04/13/skynet%20%E9%9B%86%E7%BE%A4%E4%B8%AD%E7%9A%84%E6%9C%8D%E5%8A%A1%E9%97%B4%E9%80%9A%E4%BF%A1/">Skynet 集群中的服务间通信</a>
+    </h1>
+  
+
+      </header>
+    
+    <div class="e-content article-entry" itemprop="articleBody">
+      
+        <h2 id="概述"><a href="#概述" class="headerlink" title="概述"></a>概述</h2><p>游戏服务器中，通常都必须有集群配置的，所以服务间通信，除了需要处理单节点的情况外，还需要考虑集群的情况。在 Skynet 中，如何处理集群中的服务间通信？</p>
+<p>在开始前，需要对 <code>cluster.lua</code>、<code>clusterd.lua</code>、<code>clustersender.lua</code>、<code>clusteragent.lua</code>、<code>clusterproxy.lua</code> 这 5 个文件的功能进行了解。</p>
+<h3 id="Cluster-架构图"><a href="#Cluster-架构图" class="headerlink" title="Cluster 架构图"></a>Cluster 架构图</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">cluster.lua (API层)</span><br><span class="line">     │</span><br><span class="line">clusterd.lua (协调者)</span><br><span class="line">     │</span><br><span class="line">┌─────────────────┼─────────────────┐</span><br><span class="line">│                 │                 │</span><br><span class="line">▼                 ▼                 ▼</span><br><span class="line">clustersender      clusteragent      clusterproxy</span><br><span class="line">(主动连接)         (被动接收)         (代理服务)</span><br></pre></td></tr></table></figure>
+
+<p>可以看到，<code>clusterd.lua</code> 是协调者，负责协调服务之间的通信。因为不同节点的服务，通信最终都会通过 socket 来实现，那么，最终的通信管理都离不开 gate 的维护。</p>
+<h2 id="Cluster-服务启动"><a href="#Cluster-服务启动" class="headerlink" title="Cluster 服务启动"></a>Cluster 服务启动</h2><p>游戏服务器启动的时候，会启动一个 <code>clusterd</code> 服务，负责协调服务之间的通信。该服务会启动一个 gate 服务，该 gate 服务会监听一个端口，用来接收不同节点的 socket 连接。gate 服务在启动的时候会通过 <code>handler.open(source, conf)</code> 来初始化并用闭包 <code>watchdog</code> 缓存 <code>clusterd</code> 服务的服务 id，后续有连接到该端口时，会通过 watchdog 来转发到 clusterd 服务中，从而用 clusterd 来维护连接。</p>
+<h2 id="cluster-send"><a href="#cluster-send" class="headerlink" title="cluster.send"></a>cluster.send</h2><p>当服务 A 要与服务 B 通信时，可以使用 <code>cluster.send</code>：</p>
+<figure class="highlight lua"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">function</span> <span class="title">cluster.send</span><span class="params">(node, address, ...)</span></span></span><br><span class="line">    <span class="comment">-- push is the same with req, but no response</span></span><br><span class="line">    <span class="keyword">local</span> s = sender[node]</span><br><span class="line">    <span class="keyword">if</span> <span class="keyword">not</span> s <span class="keyword">then</span></span><br><span class="line">        <span class="built_in">table</span>.<span class="built_in">insert</span>(task_queue[node], skynet.packstring(address, ...))</span><br><span class="line">    <span class="keyword">else</span></span><br><span class="line">        skynet.send(sender[node], <span class="string">&quot;lua&quot;</span>, <span class="string">&quot;push&quot;</span>, address, skynet.pack(...))</span><br><span class="line">    <span class="keyword">end</span></span><br><span class="line"><span class="keyword">end</span></span><br></pre></td></tr></table></figure>
+
+<h3 id="处理流程"><a href="#处理流程" class="headerlink" title="处理流程"></a>处理流程</h3><p><strong>1.1</strong> 当获取 <code>local s = sender[node]</code> 时，cluster 会通过元表向 clusterd 获取目标节点对应的 clustersender 服务，如果没有则创建一个 clustersender 服务并连接到服务 B 的远程节点。</p>
+<p><strong>1.2</strong> 服务 B 的 gate 服务在收到连接请求时，<code>gateserver.lua</code> 文件会处理 <code>MSG.open</code> 事件，从而在 <code>gate.lua</code> 中调用到 <code>skynet.send(watchdog, &quot;lua&quot;, &quot;socket&quot;, &quot;open&quot;, fd, addr)</code> 转发到 clusterd 服务中。clusterd 服务收到并处理 open 逻辑，会创建一个 clusteragent 服务（clusteragent 服务在启动时，会通过 <code>skynet.call(gate, &quot;lua&quot;, &quot;forward&quot;, fd)</code> 来将该 socket 连接的 fd 绑定到 gate 服务中，后续的 socket 数据都会通过 gate 服务转发到对应的 clusteragent 中）。目前为止，cluster 的 socket 连接完成了。</p>
+<p><strong>1.3</strong> 服务 A <code>cluster.send</code> 给服务 B 发送数据，实际是 A 节点中的 clustersender 服务收到 push 命令后，通过 socketchannel 的 <code>channel:request()</code> 将数据写入缓冲区中等待 socket 发送。由于 response 参数为 nil，不会等待响应。</p>
+<h2 id="cluster-call"><a href="#cluster-call" class="headerlink" title="cluster.call"></a>cluster.call</h2><figure class="highlight lua"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">function</span> <span class="title">cluster.call</span><span class="params">(node, address, ...)</span></span></span><br><span class="line">    <span class="comment">-- skynet.pack(...) will free by cluster.core.packrequest</span></span><br><span class="line">    <span class="keyword">local</span> s = sender[node]</span><br><span class="line">    <span class="keyword">if</span> <span class="keyword">not</span> s <span class="keyword">then</span></span><br><span class="line">        <span class="keyword">local</span> task = skynet.packstring(address, ...)</span><br><span class="line">        <span class="keyword">return</span> skynet.call(get_sender(node), <span class="string">&quot;lua&quot;</span>, <span class="string">&quot;req&quot;</span>, repack(skynet.<span class="built_in">unpack</span>(task)))</span><br><span class="line">    <span class="keyword">end</span></span><br><span class="line">    <span class="keyword">return</span> skynet.call(s, <span class="string">&quot;lua&quot;</span>, <span class="string">&quot;req&quot;</span>, address, skynet.pack(...))</span><br><span class="line"><span class="keyword">end</span></span><br></pre></td></tr></table></figure>
+
+<h3 id="处理流程-1"><a href="#处理流程-1" class="headerlink" title="处理流程"></a>处理流程</h3><p><strong>2.1</strong> 当获取 <code>local s = sender[node]</code> 时，cluster 会通过元表向 clusterd 获取目标节点对应的 clustersender 服务，如果没有则创建一个 clustersender 服务并连接到服务 B 的远程节点。</p>
+<p><strong>2.2</strong> 服务 B 的 gate 服务在收到连接请求时，<code>gateserver.lua</code> 文件会处理 <code>MSG.open</code> 事件，从而在 <code>gate.lua</code> 中调用到 <code>skynet.send(watchdog, &quot;lua&quot;, &quot;socket&quot;, &quot;open&quot;, fd, addr)</code> 转发到 clusterd 服务中。clusterd 服务收到并处理 open 逻辑，会创建一个 clusteragent 服务（clusteragent 服务在启动时，会通过 <code>skynet.call(gate, &quot;lua&quot;, &quot;forward&quot;, fd)</code> 来将该 socket 连接的 fd 绑定到 gate 服务中，后续的 socket 数据都会通过 gate 服务转发到对应的 clusteragent 中）。目前为止，cluster 的 socket 连接完成了。</p>
+<p><strong>2.3</strong> 服务 A <code>cluster.call</code> 给服务 B 发送数据，实际是 A 节点中的 clustersender 服务的 req 通过 socketchannel 来将数据写入缓冲区中等待 socket 发送。发送完毕后会通过 <code>response</code>（表示是否需要等待返回数据）判断是否需要调用 <code>wait_for_response</code> 来等待服务 B 的处理结果。</p>
+<p><strong>2.4</strong> 节点 B 中的 socket 线程将请求分发到 gate 服务中，gate 服务根据 fd 来将数据转发到对应的 clusteragent 服务中，clusteragent 服务将数据转发给服务 B 进行处理。节点 B 中的请求处理完成后，clusteragent 将处理结果通过 socket 直接写到缓冲区中等待发送。</p>
+<p><strong>2.5</strong> socketchannel 的 dispatch 协程在监听到 socket 有数据可读时，从缓冲区中读取响应数据，并唤醒等待中的协程，继而返回给服务 A。</p>
+<h2 id="cluster-send-与-cluster-call-的区别"><a href="#cluster-send-与-cluster-call-的区别" class="headerlink" title="cluster.send 与 cluster.call 的区别"></a>cluster.send 与 cluster.call 的区别</h2><p><code>cluster.call</code> 中，与 <code>cluster.send</code> 的区别在于，在 <code>cluster.call</code> 中，最后的逻辑是走的 <code>skynet.call</code>。那么在 clustersender <code>wait_for_response</code> 返回后，会将处理结果返回给服务 A，这里的返回，则走 <code>skynet.call</code> 的返回机制。</p>
+<h2 id="注意事项"><a href="#注意事项" class="headerlink" title="注意事项"></a>注意事项</h2><p>到这里，cluster 的通信结束了。这里需要注意的是，clustersender 服务中，socketchannel 的接收数据是不经过 epoll 的（由独立协程阻塞读取），而发送数据则是通过 <code>socket.write()</code> 直接写入缓冲区。</p>
+
+      
+    </div>
+    <footer class="article-footer">
+      <a data-url="https://wenware.github.io/2026/04/13/skynet%20%E9%9B%86%E7%BE%A4%E4%B8%AD%E7%9A%84%E6%9C%8D%E5%8A%A1%E9%97%B4%E9%80%9A%E4%BF%A1/" data-id="cmnx0necw00215wuobc7payep" data-title="Skynet 集群中的服务间通信" class="article-share-link"><span class="fa fa-share">分享</span></a>
+      
+      
+      
+  <ul class="article-tag-list" itemprop="keywords"><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/skynet/" rel="tag">skynet</a></li><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/%E6%9E%B6%E6%9E%84/" rel="tag">架构</a></li><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/%E6%B8%B8%E6%88%8F%E6%9C%8D%E5%8A%A1%E5%99%A8/" rel="tag">游戏服务器</a></li><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90/" rel="tag">源码分析</a></li><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/%E9%9B%86%E7%BE%A4/" rel="tag">集群</a></li></ul>
+
+    </footer>
+  </div>
+  
+</article>
+
+
+
+  
     <article id="post-skynet 服务间通信" class="h-entry article article-type-post" itemprop="blogPost" itemscope itemtype="https://schema.org/BlogPosting">
   <div class="article-meta">
     <a href="/2026/04/13/skynet%20%E6%9C%8D%E5%8A%A1%E9%97%B4%E9%80%9A%E4%BF%A1/" class="article-date">
@@ -135,7 +200,7 @@
       
     </div>
     <footer class="article-footer">
-      <a data-url="https://wenware.github.io/2026/04/13/skynet%20%E6%9C%8D%E5%8A%A1%E9%97%B4%E9%80%9A%E4%BF%A1/" data-id="cmnww09gj0012msuo7ft2052o" data-title="Skynet 服务间通信" class="article-share-link"><span class="fa fa-share">分享</span></a>
+      <a data-url="https://wenware.github.io/2026/04/13/skynet%20%E6%9C%8D%E5%8A%A1%E9%97%B4%E9%80%9A%E4%BF%A1/" data-id="cmnx0necl000f5wuodjzdd14n" data-title="Skynet 服务间通信" class="article-share-link"><span class="fa fa-share">分享</span></a>
       
       
       
@@ -189,7 +254,7 @@
       
     </div>
     <footer class="article-footer">
-      <a data-url="https://wenware.github.io/2026/04/09/skynet%20%E5%AE%A2%E6%88%B7%E7%AB%AF%E9%80%9A%E4%BF%A1/" data-id="cmnww09gg000tmsuo5k9veie5" data-title="Skynet 客户端通信" class="article-share-link"><span class="fa fa-share">分享</span></a>
+      <a data-url="https://wenware.github.io/2026/04/09/skynet%20%E5%AE%A2%E6%88%B7%E7%AB%AF%E9%80%9A%E4%BF%A1/" data-id="cmnx0necj000a5wuo2ehudry4" data-title="Skynet 客户端通信" class="article-share-link"><span class="fa fa-share">分享</span></a>
       
       
       
@@ -268,7 +333,7 @@
       
     </div>
     <footer class="article-footer">
-      <a data-url="https://wenware.github.io/2026/04/03/skynet%20%E6%9C%8D%E5%8A%A1/" data-id="cmnww09gh000vmsuoes8p9vwm" data-title="Skynet 服务启动机制" class="article-share-link"><span class="fa fa-share">分享</span></a>
+      <a data-url="https://wenware.github.io/2026/04/03/skynet%20%E6%9C%8D%E5%8A%A1/" data-id="cmnx0neck000b5wuoe5kh9yu6" data-title="Skynet 服务启动机制" class="article-share-link"><span class="fa fa-share">分享</span></a>
       
       
       
@@ -342,7 +407,7 @@
       
     </div>
     <footer class="article-footer">
-      <a data-url="https://wenware.github.io/2026/04/02/skynet%20%E6%B8%B8%E6%88%8F%E6%9E%B6%E6%9E%84/" data-id="cmnww09gq001qmsuo06uocs32" data-title="Skynet 游戏服务器框架主体" class="article-share-link"><span class="fa fa-share">分享</span></a>
+      <a data-url="https://wenware.github.io/2026/04/02/skynet%20%E6%B8%B8%E6%88%8F%E6%9E%B6%E6%9E%84/" data-id="cmnx0necm000h5wuoeyf9euno" data-title="Skynet 游戏服务器框架主体" class="article-share-link"><span class="fa fa-share">分享</span></a>
       
       
       
@@ -410,7 +475,7 @@
       
     </div>
     <footer class="article-footer">
-      <a data-url="https://wenware.github.io/2026/03/24/lua%20--%20%E5%88%86%E4%BB%A3gc/" data-id="cmnww09g10001msuoawbc77ey" data-title="Lua 分代 GC" class="article-share-link"><span class="fa fa-share">分享</span></a>
+      <a data-url="https://wenware.github.io/2026/03/24/lua%20--%20%E5%88%86%E4%BB%A3gc/" data-id="cmnx0necb00015wuo4cna9in3" data-title="Lua 分代 GC" class="article-share-link"><span class="fa fa-share">分享</span></a>
       
       
       
@@ -491,7 +556,7 @@
       
     </div>
     <footer class="article-footer">
-      <a data-url="https://wenware.github.io/2026/03/24/lua%20--%20%E5%A2%9E%E9%87%8Fgc/" data-id="cmnww09g30002msuogj65cr72" data-title="Lua 增量 GC" class="article-share-link"><span class="fa fa-share">分享</span></a>
+      <a data-url="https://wenware.github.io/2026/03/24/lua%20--%20%E5%A2%9E%E9%87%8Fgc/" data-id="cmnx0necd00025wuoh4evfw3u" data-title="Lua 增量 GC" class="article-share-link"><span class="fa fa-share">分享</span></a>
       
       
       
@@ -561,7 +626,7 @@
       
     </div>
     <footer class="article-footer">
-      <a data-url="https://wenware.github.io/2026/03/23/lua%20%E6%98%AF%E6%80%8E%E4%B9%88%E8%BF%90%E8%A1%8C%E8%B5%B7%E6%9D%A5%E7%9A%84%20--%20lua_loadfile%E5%8A%A0%E8%BD%BD%E5%AE%8C%E8%84%9A%E6%9C%AC%E5%90%8E%EF%BC%8C%E9%87%8C%E9%9D%A2%E7%9A%84%E6%95%B0%E6%8D%AE%E6%98%AF%E5%A6%82%E4%BD%95%E5%9C%A8lua_pcall%E9%87%8C%E6%89%A7%E8%A1%8C%E7%9A%84%EF%BC%9F/" data-id="cmnww09g60005msuogdddddgg" data-title="Lua 是怎么运行起来的 -- lua_loadfile加载完脚本后，里面的数据是如何在lua_pcall里执行的？" class="article-share-link"><span class="fa fa-share">分享</span></a>
+      <a data-url="https://wenware.github.io/2026/03/23/lua%20%E6%98%AF%E6%80%8E%E4%B9%88%E8%BF%90%E8%A1%8C%E8%B5%B7%E6%9D%A5%E7%9A%84%20--%20lua_loadfile%E5%8A%A0%E8%BD%BD%E5%AE%8C%E8%84%9A%E6%9C%AC%E5%90%8E%EF%BC%8C%E9%87%8C%E9%9D%A2%E7%9A%84%E6%95%B0%E6%8D%AE%E6%98%AF%E5%A6%82%E4%BD%95%E5%9C%A8lua_pcall%E9%87%8C%E6%89%A7%E8%A1%8C%E7%9A%84%EF%BC%9F/" data-id="cmnx0necf00055wuo9a1thbiz" data-title="Lua 是怎么运行起来的 -- lua_loadfile加载完脚本后，里面的数据是如何在lua_pcall里执行的？" class="article-share-link"><span class="fa fa-share">分享</span></a>
       
       
       
@@ -638,7 +703,7 @@
       
     </div>
     <footer class="article-footer">
-      <a data-url="https://wenware.github.io/2026/03/18/lua%20%E6%98%AF%E6%80%8E%E4%B9%88%E8%BF%90%E8%A1%8C%E8%B5%B7%E6%9D%A5%E7%9A%84%20--%20lua_loadfile%E9%87%8C%E6%98%AF%E5%81%9A%E4%BA%86%E4%BB%80%E4%B9%88%E5%91%A2%EF%BC%9F%E6%98%AF%E5%A6%82%E4%BD%95%E4%BA%A7%E7%94%9Flua%E8%84%9A%E6%9C%AC%E7%9A%84%E9%97%AD%E5%8C%85%E7%9A%84%EF%BC%9F/" data-id="cmnww09gf000rmsuo72migdh9" data-title="Lua 是怎么运行起来的 -- lua_loadfile里是做了什么呢？是如何产生lua脚本的闭包的？" class="article-share-link"><span class="fa fa-share">分享</span></a>
+      <a data-url="https://wenware.github.io/2026/03/18/lua%20%E6%98%AF%E6%80%8E%E4%B9%88%E8%BF%90%E8%A1%8C%E8%B5%B7%E6%9D%A5%E7%9A%84%20--%20lua_loadfile%E9%87%8C%E6%98%AF%E5%81%9A%E4%BA%86%E4%BB%80%E4%B9%88%E5%91%A2%EF%BC%9F%E6%98%AF%E5%A6%82%E4%BD%95%E4%BA%A7%E7%94%9Flua%E8%84%9A%E6%9C%AC%E7%9A%84%E9%97%AD%E5%8C%85%E7%9A%84%EF%BC%9F/" data-id="cmnx0nech00075wuo6m6k5ujw" data-title="Lua 是怎么运行起来的 -- lua_loadfile里是做了什么呢？是如何产生lua脚本的闭包的？" class="article-share-link"><span class="fa fa-share">分享</span></a>
       
       
       
@@ -719,50 +784,12 @@
       
     </div>
     <footer class="article-footer">
-      <a data-url="https://wenware.github.io/2026/03/18/lua%E4%B8%AD%E7%9A%84require%E6%89%A7%E8%A1%8C%E6%B5%81%E7%A8%8B/" data-id="cmnww09gf000qmsuoer6c75vm" data-title="Lua中的require执行流程" class="article-share-link"><span class="fa fa-share">分享</span></a>
+      <a data-url="https://wenware.github.io/2026/03/18/lua%E4%B8%AD%E7%9A%84require%E6%89%A7%E8%A1%8C%E6%B5%81%E7%A8%8B/" data-id="cmnx0necg00065wuo6fw0298a" data-title="Lua中的require执行流程" class="article-share-link"><span class="fa fa-share">分享</span></a>
       
       
       
   <ul class="article-tag-list" itemprop="keywords"><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/Lua/" rel="tag">Lua</a></li><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/lua-%E7%9A%84-require/" rel="tag">lua 的 require</a></li></ul>
 
-    </footer>
-  </div>
-  
-</article>
-
-
-
-  
-    <article id="post-skynet-call-具体流程" class="h-entry article article-type-post" itemprop="blogPost" itemscope itemtype="https://schema.org/BlogPosting">
-  <div class="article-meta">
-    <a href="/2026/03/05/skynet-call-%E5%85%B7%E4%BD%93%E6%B5%81%E7%A8%8B/" class="article-date">
-  <time class="dt-published" datetime="2026-03-05T02:10:04.000Z" itemprop="datePublished">2026-03-05</time>
-</a>
-    
-  </div>
-  <div class="article-inner">
-    
-    
-      <header class="article-header">
-        
-  
-    <h1 itemprop="name">
-      <a class="p-name article-title" href="/2026/03/05/skynet-call-%E5%85%B7%E4%BD%93%E6%B5%81%E7%A8%8B/">skynet.call 具体流程</a>
-    </h1>
-  
-
-      </header>
-    
-    <div class="e-content article-entry" itemprop="articleBody">
-      
-        
-      
-    </div>
-    <footer class="article-footer">
-      <a data-url="https://wenware.github.io/2026/03/05/skynet-call-%E5%85%B7%E4%BD%93%E6%B5%81%E7%A8%8B/" data-id="cmnww09gi000ymsuo6k2q0b03" data-title="skynet.call 具体流程" class="article-share-link"><span class="fa fa-share">分享</span></a>
-      
-      
-      
     </footer>
   </div>
   
@@ -796,7 +823,7 @@
   <div class="widget-wrap">
     <h3 class="widget-title">标签</h3>
     <div class="widget">
-      <ul class="tag-list" itemprop="keywords"><li class="tag-list-item"><a class="tag-list-link" href="/tags/GC/" rel="tag">GC</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Lua/" rel="tag">Lua</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/lua-%E7%9A%84-require/" rel="tag">lua 的 require</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/skynet/" rel="tag">skynet</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E6%9E%B6%E6%9E%84/" rel="tag">架构</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E6%B8%B8%E6%88%8F%E6%9C%8D%E5%8A%A1%E5%99%A8/" rel="tag">游戏服务器</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90/" rel="tag">源码分析</a></li></ul>
+      <ul class="tag-list" itemprop="keywords"><li class="tag-list-item"><a class="tag-list-link" href="/tags/GC/" rel="tag">GC</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Lua/" rel="tag">Lua</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/lua-%E7%9A%84-require/" rel="tag">lua 的 require</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/skynet/" rel="tag">skynet</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E6%9E%B6%E6%9E%84/" rel="tag">架构</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E6%B8%B8%E6%88%8F%E6%9C%8D%E5%8A%A1%E5%99%A8/" rel="tag">游戏服务器</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90/" rel="tag">源码分析</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/%E9%9B%86%E7%BE%A4/" rel="tag">集群</a></li></ul>
     </div>
   </div>
 
@@ -806,7 +833,7 @@
   <div class="widget-wrap">
     <h3 class="widget-title">标签云</h3>
     <div class="widget tagcloud">
-      <a href="/tags/GC/" style="font-size: 12.5px;">GC</a> <a href="/tags/Lua/" style="font-size: 17.5px;">Lua</a> <a href="/tags/lua-%E7%9A%84-require/" style="font-size: 10px;">lua 的 require</a> <a href="/tags/skynet/" style="font-size: 15px;">skynet</a> <a href="/tags/%E6%9E%B6%E6%9E%84/" style="font-size: 15px;">架构</a> <a href="/tags/%E6%B8%B8%E6%88%8F%E6%9C%8D%E5%8A%A1%E5%99%A8/" style="font-size: 15px;">游戏服务器</a> <a href="/tags/%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90/" style="font-size: 20px;">源码分析</a>
+      <a href="/tags/GC/" style="font-size: 13.33px;">GC</a> <a href="/tags/Lua/" style="font-size: 16.67px;">Lua</a> <a href="/tags/lua-%E7%9A%84-require/" style="font-size: 10px;">lua 的 require</a> <a href="/tags/skynet/" style="font-size: 16.67px;">skynet</a> <a href="/tags/%E6%9E%B6%E6%9E%84/" style="font-size: 16.67px;">架构</a> <a href="/tags/%E6%B8%B8%E6%88%8F%E6%9C%8D%E5%8A%A1%E5%99%A8/" style="font-size: 16.67px;">游戏服务器</a> <a href="/tags/%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90/" style="font-size: 20px;">源码分析</a> <a href="/tags/%E9%9B%86%E7%BE%A4/" style="font-size: 10px;">集群</a>
     </div>
   </div>
 
@@ -828,6 +855,10 @@
       <ul>
         
           <li>
+            <a href="/2026/04/13/skynet%20%E9%9B%86%E7%BE%A4%E4%B8%AD%E7%9A%84%E6%9C%8D%E5%8A%A1%E9%97%B4%E9%80%9A%E4%BF%A1/">Skynet 集群中的服务间通信</a>
+          </li>
+        
+          <li>
             <a href="/2026/04/13/skynet%20%E6%9C%8D%E5%8A%A1%E9%97%B4%E9%80%9A%E4%BF%A1/">Skynet 服务间通信</a>
           </li>
         
@@ -841,10 +872,6 @@
         
           <li>
             <a href="/2026/04/02/skynet%20%E6%B8%B8%E6%88%8F%E6%9E%B6%E6%9E%84/">Skynet 游戏服务器框架主体</a>
-          </li>
-        
-          <li>
-            <a href="/2026/03/24/lua%20--%20%E5%88%86%E4%BB%A3gc/">Lua 分代 GC</a>
           </li>
         
       </ul>
