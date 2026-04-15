@@ -71,6 +71,87 @@
       <div class="outer">
         <section id="main">
   
+    <article id="post-lua中的require执行流程" class="h-entry article article-type-post" itemprop="blogPost" itemscope itemtype="https://schema.org/BlogPosting">
+  <div class="article-meta">
+    <a href="/2026/03/18/lua%E4%B8%AD%E7%9A%84require%E6%89%A7%E8%A1%8C%E6%B5%81%E7%A8%8B/" class="article-date">
+  <time class="dt-published" datetime="2026-03-18T04:00:00.000Z" itemprop="datePublished">2026-03-18</time>
+</a>
+    
+  <div class="article-category">
+    <a class="article-category-link" href="/categories/%E6%8A%80%E6%9C%AF%E7%AC%94%E8%AE%B0/">技术笔记</a>
+  </div>
+
+  </div>
+  <div class="article-inner">
+    
+    
+      <header class="article-header">
+        
+  
+    <h1 itemprop="name">
+      <a class="p-name article-title" href="/2026/03/18/lua%E4%B8%AD%E7%9A%84require%E6%89%A7%E8%A1%8C%E6%B5%81%E7%A8%8B/">Lua中的require执行流程</a>
+    </h1>
+  
+
+      </header>
+    
+    <div class="e-content article-entry" itemprop="articleBody">
+      
+        <h2 id="引言"><a href="#引言" class="headerlink" title="引言"></a>引言</h2><p>一直以来，对 Lua 的源码还是没有太深究下去，只是研究了中等，知道是怎么执行的，但是都没有具体的去看，只是停留在了知道是怎么执行的这个阶段。现在的 AI 写代码已经是必然趋势，如果只是知道其设计原理，感觉还是不太够的。</p>
+<p>所以，最近在研究 Lua 源码武装自己，希望能在未来的项目中，能够更加游刃有余的处理 Lua 的代码。</p>
+<p>Lua 源码已经看了大概，加上 AI 的帮助，确实比之前的自己硬啃要快很多，也更有目的性。现在先对 Lua 的 require 的实现逻辑进行总结。</p>
+<h2 id="luaL-openlibs-的作用"><a href="#luaL-openlibs-的作用" class="headerlink" title="luaL_openlibs 的作用"></a>luaL_openlibs 的作用</h2><p>首先，要理解 require 是怎么执行的，必须先要知道在启动一个 LVM 时的 <code>luaL_openlibs</code> 做了哪些东西：</p>
+<ol>
+<li>注册了一些全局函数，比如 <code>print</code>、<code>require</code> 等</li>
+<li>加载了一些基础的库，比如 <code>math</code>、<code>string</code>、<code>table</code> 等</li>
+<li>加载了一些可选的库，比如 <code>socket</code>、<code>lfs</code> 等</li>
+<li>加载了一些自定义的库，比如 <code>agent</code> 等</li>
+<li>初始化了一些全局变量，比如 <code>_G</code>、<code>package</code> 等</li>
+</ol>
+<p>在 <code>luaL_openlibs</code>（linit.c）中，会对 <code>luaL_Reg stdlibs[]</code> 里的库进行加载，而其中的 <code>&#123;LUA_LOADLIBNAME, luaopen_package&#125;</code> 项，会加载 package 库。</p>
+<p>package 库中会注册 require 函数，所以，require 函数就被注册到了全局环境中，执行完后，require 就已经保存到 <code>_G</code> 中。</p>
+<h2 id="require-的执行流程"><a href="#require-的执行流程" class="headerlink" title="require 的执行流程"></a>require 的执行流程</h2><p>当 LVM 执行 Lua 脚本时，遇到 require 语句时，会先从 <code>package.loaded</code> 中查找是否已经加载过该库，如果没有加载过，就会调用 require 函数加载该库。</p>
+<p>这时候执行到 require 命令的字节码时，会调用到 <code>ll_require</code> 函数（loadlib.c），会先从 <code>package.searchers</code> 中查找到与之对应的加载器，例如：</p>
+<ul>
+<li>Lua 文件的加载器对应 <code>LUA_LOADLIBNAME</code></li>
+<li>C 库的加载器对应 <code>LUA_COLIBNAME</code></li>
+</ul>
+<p>找到加载器后，就会调用加载器加载该库：</p>
+<ul>
+<li>Lua 文件的加载器会调用 <code>luaL_loadfile</code> 加载该文件</li>
+<li>C 库的加载器会调用 <code>luaopen_xxx</code> 加载该库</li>
+</ul>
+<p>加载完成后，会将该库保存到 <code>package.loaded</code> 中，以便后续的 require 调用可以直接从 <code>package.loaded</code> 中查找。</p>
+<p>最终，会调用到库中的 <code>luaopen_xx</code> 函数，里面会创建一个新的 table，这个 table 里会有对外接口的函数映射，require 返回对应的库的 table，例如 <code>require(&quot;math&quot;)</code> 会返回 math 库的 table。</p>
+<h2 id="完整调用流程"><a href="#完整调用流程" class="headerlink" title="完整调用流程"></a>完整调用流程</h2><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br></pre></td><td class="code"><pre><span class="line">require(&quot;math&quot;)</span><br><span class="line">    │</span><br><span class="line">    ▼</span><br><span class="line">ll_require() 被调用</span><br><span class="line">    │</span><br><span class="line">    ├─ 检查 registry[LOADED][&quot;math&quot;] → nil (未加载)</span><br><span class="line">    │</span><br><span class="line">    ▼</span><br><span class="line">findloader() 查找加载器</span><br><span class="line">    │</span><br><span class="line">    ▼</span><br><span class="line">遍历 package.searchers (4 个 searcher):</span><br><span class="line">1. searcher_preload  - 预加载的 C 模块</span><br><span class="line">2. searcher_Lua      - Lua 模块</span><br><span class="line">3. searcher_C        - C 模块 ← 匹配 &quot;math&quot; 是 C 模块</span><br><span class="line">4. searcher_Croot</span><br><span class="line">    │</span><br><span class="line">    ▼</span><br><span class="line">searcher_C() 调用 loadfunc(&quot;math&quot;)</span><br><span class="line">    │</span><br><span class="line">    ├─ lookforfunc(path, &quot;luaopen_math&quot;)</span><br><span class="line">    │   │</span><br><span class="line">    │   ├─ 加载 math.dll/.so</span><br><span class="line">    │   ├─ 查找符号 &quot;luaopen_math&quot;</span><br><span class="line">    │   └─ 返回 lua_CFunction 函数指针</span><br><span class="line">    │</span><br><span class="line">    ▼</span><br><span class="line">lua_call(L, 2, 1)  // 调用 luaopen_math</span><br><span class="line">    │</span><br><span class="line">    ▼</span><br><span class="line">luaopen_math() 执行 (在 lmathlib.c:752):</span><br><span class="line">    │</span><br><span class="line">    ├─ luaL_newlib(L, mathlib)  // 创建新 table</span><br><span class="line">    ├─ 填充: sin, cos, tan, pi, huge, maxinteger, mininteger, random, ...</span><br><span class="line">    └─ return 1  // 返回 table</span><br><span class="line">    │</span><br><span class="line">    ▼</span><br><span class="line">ll_require() 保存结果:</span><br><span class="line">    │</span><br><span class="line">    ├─ registry[LOADED][&quot;math&quot;] = math表</span><br><span class="line">    └─ 返回 math表</span><br></pre></td></tr></table></figure>
+
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>通过深入研究 Lua 源码，我们可以清晰地看到 require 的完整执行流程：</p>
+<ol>
+<li><strong>初始化阶段</strong>：<code>luaL_openlibs</code> 加载 package 库并注册 require 函数</li>
+<li><strong>缓存检查</strong>：首先检查 <code>package.loaded</code> 是否已加载该模块</li>
+<li><strong>加载器查找</strong>：遍历 <code>package.searchers</code> 找到合适的加载器</li>
+<li><strong>模块加载</strong>：根据模块类型（Lua 或 C）调用对应的加载器</li>
+<li><strong>结果缓存</strong>：将加载结果保存到 <code>package.loaded</code> 中</li>
+</ol>
+<p>这种设计既保证了模块只加载一次，又支持多种加载方式，是 Lua 模块系统的核心机制。</p>
+
+      
+    </div>
+    <footer class="article-footer">
+      <a data-url="https://wenware.github.io/2026/03/18/lua%E4%B8%AD%E7%9A%84require%E6%89%A7%E8%A1%8C%E6%B5%81%E7%A8%8B/" data-id="cmnzvkrec00073cuo8zr2et4k" data-title="Lua中的require执行流程" class="article-share-link"><span class="fa fa-share">分享</span></a>
+      
+      
+      
+  <ul class="article-tag-list" itemprop="keywords"><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/Lua/" rel="tag">Lua</a></li><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/lua-%E7%9A%84-require/" rel="tag">lua 的 require</a></li></ul>
+
+    </footer>
+  </div>
+  
+</article>
+
+
+
+  
     <article id="post-skynet-call-具体流程" class="h-entry article article-type-post" itemprop="blogPost" itemscope itemtype="https://schema.org/BlogPosting">
   <div class="article-meta">
     <a href="/2026/03/05/skynet-call-%E5%85%B7%E4%BD%93%E6%B5%81%E7%A8%8B/" class="article-date">
@@ -97,7 +178,7 @@
       
     </div>
     <footer class="article-footer">
-      <a data-url="https://wenware.github.io/2026/03/05/skynet-call-%E5%85%B7%E4%BD%93%E6%B5%81%E7%A8%8B/" data-id="cmnx0o887002cp8uod7txgxww" data-title="skynet.call 具体流程" class="article-share-link"><span class="fa fa-share">分享</span></a>
+      <a data-url="https://wenware.github.io/2026/03/05/skynet-call-%E5%85%B7%E4%BD%93%E6%B5%81%E7%A8%8B/" data-id="cmnzvkreu002b3cuodu5k07sp" data-title="skynet.call 具体流程" class="article-share-link"><span class="fa fa-share">分享</span></a>
       
       
       
@@ -148,7 +229,7 @@
       
     </div>
     <footer class="article-footer">
-      <a data-url="https://wenware.github.io/2026/03/04/hello-world/" data-id="cmnx0o87e0000p8uohujyadm9" data-title="Hello World" class="article-share-link"><span class="fa fa-share">分享</span></a>
+      <a data-url="https://wenware.github.io/2026/03/04/hello-world/" data-id="cmnzvkre200003cuo0fwwhavi" data-title="Hello World" class="article-share-link"><span class="fa fa-share">分享</span></a>
       
       
       
@@ -195,7 +276,7 @@
   <div class="widget-wrap">
     <h3 class="widget-title">标签云</h3>
     <div class="widget tagcloud">
-      <a href="/tags/GC/" style="font-size: 13.33px;">GC</a> <a href="/tags/Lua/" style="font-size: 16.67px;">Lua</a> <a href="/tags/lua-%E7%9A%84-require/" style="font-size: 10px;">lua 的 require</a> <a href="/tags/skynet/" style="font-size: 16.67px;">skynet</a> <a href="/tags/%E6%9E%B6%E6%9E%84/" style="font-size: 16.67px;">架构</a> <a href="/tags/%E6%B8%B8%E6%88%8F%E6%9C%8D%E5%8A%A1%E5%99%A8/" style="font-size: 16.67px;">游戏服务器</a> <a href="/tags/%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90/" style="font-size: 20px;">源码分析</a> <a href="/tags/%E9%9B%86%E7%BE%A4/" style="font-size: 10px;">集群</a>
+      <a href="/tags/GC/" style="font-size: 12.5px;">GC</a> <a href="/tags/Lua/" style="font-size: 15px;">Lua</a> <a href="/tags/lua-%E7%9A%84-require/" style="font-size: 10px;">lua 的 require</a> <a href="/tags/skynet/" style="font-size: 17.5px;">skynet</a> <a href="/tags/%E6%9E%B6%E6%9E%84/" style="font-size: 17.5px;">架构</a> <a href="/tags/%E6%B8%B8%E6%88%8F%E6%9C%8D%E5%8A%A1%E5%99%A8/" style="font-size: 17.5px;">游戏服务器</a> <a href="/tags/%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90/" style="font-size: 20px;">源码分析</a> <a href="/tags/%E9%9B%86%E7%BE%A4/" style="font-size: 10px;">集群</a>
     </div>
   </div>
 
@@ -217,6 +298,10 @@
       <ul>
         
           <li>
+            <a href="/2026/04/15/skynet%20%E4%BB%A3%E7%A0%81%E5%85%B1%E4%BA%AB/">Skynet 代码共享</a>
+          </li>
+        
+          <li>
             <a href="/2026/04/13/skynet%20%E9%9B%86%E7%BE%A4%E4%B8%AD%E7%9A%84%E6%9C%8D%E5%8A%A1%E9%97%B4%E9%80%9A%E4%BF%A1/">Skynet 集群中的服务间通信</a>
           </li>
         
@@ -230,10 +315,6 @@
         
           <li>
             <a href="/2026/04/03/skynet%20%E6%9C%8D%E5%8A%A1/">Skynet 服务启动机制</a>
-          </li>
-        
-          <li>
-            <a href="/2026/04/02/skynet%20%E6%B8%B8%E6%88%8F%E6%9E%B6%E6%9E%84/">Skynet 游戏服务器框架主体</a>
           </li>
         
       </ul>
